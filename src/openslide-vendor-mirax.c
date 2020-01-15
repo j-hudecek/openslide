@@ -509,11 +509,11 @@ static bool read_nonhier_record(struct _openslide_file *f,
   }
 
   // read pagesize == 1
-  if (read_le_int32_from_file(f) != 1) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Expected 1 value");
-    return false;
-  }
+  read_le_int32_from_file(f);
+//    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+//                "Expected 1 value");
+ //   return false;
+//  }
 
   // read 3 zeroes
   // the first zero is sometimes 1253, for reasons that are not clear
