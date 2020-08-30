@@ -409,6 +409,7 @@ void openslide_cancel_prefetch_hint(openslide_t *osr, int prefetch_id);
 #define TIFFFdOpen _OPENSLIDE_POISON(_openslide_tiffcache_get_)
 #define TIFFOpen _OPENSLIDE_POISON(_openslide_tiffcache_get__)
 #define TIFFSetDirectory _OPENSLIDE_POISON(_openslide_tiff_set_dir)
+#define TIFFSetSubDirectory _OPENSLIDE_POISON(_openslide_tiff_set_offset)
 
 #ifndef NO_POISON_FSEEKO
 // openslide-file.c needs the original macros
