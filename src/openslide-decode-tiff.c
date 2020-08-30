@@ -65,6 +65,14 @@ struct associated_image {
     }									\
   } while (0)
 
+#define SET_OFFSET_OR_FAIL(tiff, offset)					\
+  do {									\
+    if (!_openslide_tiff_set_offset(tiff, offset, err)) {			\
+      return false;							\
+    }									\
+  } while (0)
+
+
 #define GET_FIELD_OR_FAIL(tiff, tag, type, result)			\
   do {									\
     type tmp;								\
@@ -92,6 +100,22 @@ bool _openslide_tiff_set_dir(TIFF *tiff,
   return true;
 }
 #define TIFFSetDirectory _OPENSLIDE_POISON(_openslide_tiff_set_dir)
+#undef TIFFSetSubDirectory
+bool _openslide_tiff_set_offset(TIFF* tiff,
+    uint64_t offset,
+    GError** err) {
+    if (offset == TIFFCurrentDirOffset(tiff)) {
+        // avoid libtiff unnecessarily rereading directory contents
+        return true;
+    }
+    if (!TIFFSetSubDirectory(tiff, offset)) {
+        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+            "Cannot set TIFF directory to offset %I64d", offset);
+        return false;
+    }
+    return true;
+}
+#define TIFFSetSubDirectory _OPENSLIDE_POISON(_openslide_tiff_set_offset)
 
 bool _openslide_tiff_level_init(TIFF *tiff,
                                 tdir_t dir,
@@ -105,6 +129,7 @@ bool _openslide_tiff_level_init(TIFF *tiff,
   int64_t tw, th;
   GET_FIELD_OR_FAIL(tiff, TIFFTAG_TILEWIDTH, uint32_t, tw);
   GET_FIELD_OR_FAIL(tiff, TIFFTAG_TILELENGTH, uint32_t, th);
+  tiffl->tiff_directory_offset = TIFFCurrentDirOffset(tiff);
 
   // get image size
   int64_t iw, ih;
@@ -270,7 +295,7 @@ bool _openslide_tiff_read_tile(struct _openslide_tiff_level *tiffl,
                                int64_t tile_col, int64_t tile_row,
                                GError **err) {
   // set directory
-  SET_DIR_OR_FAIL(tiff, tiffl->dir);
+  SET_OFFSET_OR_FAIL(tiff, tiffl->tiff_directory_offset);
 
   if (tiffl->tile_read_direct) {
     // Fast path: read raw data, decode through libjpeg
@@ -324,7 +349,7 @@ bool _openslide_tiff_read_tile_data(struct _openslide_tiff_level *tiffl,
                                     int64_t tile_col, int64_t tile_row,
                                     GError **err) {
   // set directory
-  SET_DIR_OR_FAIL(tiff, tiffl->dir);
+  SET_OFFSET_OR_FAIL(tiff, tiffl->tiff_directory_offset);
 
   // get tile number
   ttile_t tile_no = TIFFComputeTile(tiff,

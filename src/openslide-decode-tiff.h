@@ -37,6 +37,7 @@ struct _openslide_tiff_level {
   int64_t tile_h;
   int64_t tiles_across;
   int64_t tiles_down;
+  uint64_t tiff_directory_offset;
 
   bool tile_read_direct;
   gint warned_read_indirect;
@@ -83,6 +84,10 @@ bool _openslide_tiff_add_associated_image(openslide_t *osr,
 bool _openslide_tiff_set_dir(TIFF *tiff,
                              tdir_t dir,
                              GError **err);
+
+bool _openslide_tiff_set_offset(TIFF* tiff,
+    uint64_t offset,
+    GError** err);
 
 
 /* TIFF handles are not thread-safe, so we have a handle cache for
