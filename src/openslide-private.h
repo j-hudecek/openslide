@@ -26,6 +26,7 @@
 
 #include "openslide.h"
 #include "openslide-hash.h"
+#include "openslide-compatibility.h"
 
 #include <glib.h>
 #include <stdio.h>
@@ -133,6 +134,7 @@ extern const struct _openslide_format _openslide_format_philips;
 extern const struct _openslide_format _openslide_format_sakura;
 extern const struct _openslide_format _openslide_format_trestle;
 extern const struct _openslide_format _openslide_format_ventana;
+extern const struct _openslide_format _openslide_format_zeiss;
 
 /* GHashTable utils */
 guint _openslide_int64_hash(gconstpointer v);
@@ -144,6 +146,7 @@ GKeyFile *_openslide_read_key_file(const char *filename, int32_t max_size,
                                    GKeyFileFlags flags, GError **err);
 
 /* fopen() wrapper which properly sets FD_CLOEXEC */
+OPENSLIDE_PUBLIC()
 FILE *_openslide_fopen(const char *path, const char *mode, GError **err);
 
 /* Parse string to double, returning NAN on failure.  Accept both comma
@@ -163,12 +166,14 @@ void _openslide_duplicate_double_prop(openslide_t *osr, const char *src,
 void _openslide_set_background_color_prop(openslide_t *osr,
                                           uint8_t r, uint8_t g, uint8_t b);
 
+bool _openslide_get_background_color_prop(openslide_t *osr,
+                                          uint8_t *r, uint8_t *g, uint8_t *b);
+
 // clip right/bottom edges of tile
 bool _openslide_clip_tile(uint32_t *tiledata,
                           int64_t tile_w, int64_t tile_h,
                           int64_t clip_w, int64_t clip_h,
                           GError **err);
-
 
 // Grid helpers
 struct _openslide_grid;
@@ -251,7 +256,7 @@ void _openslide_set_bounds_props_from_grid(openslide_t *osr,
 
 
 /* Cache */
-#define _OPENSLIDE_USEFUL_CACHE_SIZE 1024*1024*32
+#define _OPENSLIDE_USEFUL_CACHE_SIZE 1024*1024*64
 
 struct _openslide_cache_entry;
 

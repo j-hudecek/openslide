@@ -12,9 +12,9 @@ ACLOCAL_AMFLAGS=-I m4
 
 lib_LTLIBRARIES = src/libopenslide.la
 
-src_libopenslide_la_LIBADD = $(GLIB2_LIBS) $(CAIRO_LIBS) $(SQLITE3_LIBS) \
+src_libopenslide_la_LIBADD = $(GLIB2_LIBS) $(GIO2_WINDOWS_LIBS) $(CAIRO_LIBS) $(SQLITE3_LIBS) \
 	$(LIBXML2_LIBS) $(OPENJPEG_LIBS) $(LIBTIFF_LIBS) $(LIBPNG_LIBS) \
-	$(LIBJPEG_LIBS) $(GDKPIXBUF_LIBS) $(ZLIB_LIBS)
+	$(GDKPIXBUF_LIBS) $(ZLIB_LIBS) $(LIBJXR_LIBS)
 
 src_libopenslide_la_SOURCES = \
 	src/openslide.c \
@@ -22,8 +22,8 @@ src_libopenslide_la_SOURCES = \
 	src/openslide-decode-gdkpixbuf.c \
 	src/openslide-decode-jp2k.c \
 	src/openslide-decode-jpeg.c \
+	src/openslide-decode-jxr.c \
 	src/openslide-decode-png.c \
-	src/openslide-decode-sqlite.c \
 	src/openslide-decode-tiff.c \
 	src/openslide-decode-tifflike.c \
 	src/openslide-decode-xml.c \
@@ -39,17 +39,26 @@ src_libopenslide_la_SOURCES = \
 	src/openslide-vendor-leica.c \
 	src/openslide-vendor-mirax.c \
 	src/openslide-vendor-philips.c \
-	src/openslide-vendor-sakura.c \
 	src/openslide-vendor-trestle.c \
-	src/openslide-vendor-ventana.c
+	src/openslide-vendor-ventana.c \
+	src/openslide-vendor-zeiss.c
+	
+if HAVE_SQLITE3
+src_libopenslide_la_SOURCES += \
+	src/openslide-decode-sqlite.c \
+	src/openslide-vendor-sakura.c
+endif
 
-EXTRA_PROGRAMS = src/make-tables
-CLEANFILES = src/make-tables
+# Update sources for compatibility
+src_libopenslide_la_SOURCES += src/openslide-compatibility.c
+
+EXTRA_PROGRAMS = src/make-tables$(EXEEXT)
+CLEANFILES = src/make-tables$(EXEEXT)
 MAINTAINERCLEANFILES = src/openslide-tables.c
 # Depending directly on src/make-tables causes needless regeneration of
 # openslide-tables.c.  As the lesser of evils, recursively invoke make.
 src/openslide-tables.c: src/make-tables.c
-	@$(MAKE) $(AM_MAKEFLAGS) src/make-tables
+	@$(MAKE) $(AM_MAKEFLAGS) src/make-tables$(EXEEXT)
 	$(AM_V_GEN)src/make-tables$(EXEEXT) "$@"
 
 if WINDOWS_RESOURCES
@@ -61,13 +70,12 @@ endif
 	$(AM_V_GEN)$(LIBTOOL) $(AM_V_lt) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --tag=RC --mode=compile $(RC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) -i "$<" -o "$@"
 
 src_libopenslide_la_CPPFLAGS = -pedantic -D_OPENSLIDE_BUILDING_DLL \
-	$(GLIB2_CFLAGS) $(CAIRO_CFLAGS) $(SQLITE3_CFLAGS) $(LIBXML2_CFLAGS) \
+	$(GLIB2_CFLAGS) $(GIO2_WINDOWS_CFLAGS) $(CAIRO_CFLAGS) $(SQLITE3_CFLAGS) $(LIBXML2_CFLAGS) \
 	$(OPENJPEG_CFLAGS) $(LIBTIFF_CFLAGS) $(LIBPNG_CFLAGS) \
-	$(GDKPIXBUF_CFLAGS) $(ZLIB_CFLAGS) -DG_LOG_DOMAIN=\"Openslide\" \
+	$(GDKPIXBUF_CFLAGS) $(ZLIB_CFLAGS) $(LIBJXR_CFLAGS) -DG_LOG_DOMAIN=\"Openslide\" \
 	-I$(top_srcdir)/src
 
 src_libopenslide_la_LDFLAGS = -version-info 4:1:4 -no-undefined
-
 
 pkginclude_HEADERS = \
 	src/openslide.h \
@@ -76,9 +84,11 @@ pkginclude_HEADERS = \
 noinst_HEADERS = \
 	common/openslide-common.h \
 	src/openslide-cairo.h \
+	src/openslide-compatibility.h \
 	src/openslide-decode-gdkpixbuf.h \
 	src/openslide-decode-jp2k.h \
 	src/openslide-decode-jpeg.h \
+	src/openslide-decode-jxr.h \
 	src/openslide-decode-png.h \
 	src/openslide-decode-sqlite.h \
 	src/openslide-decode-tiff.h \
@@ -87,7 +97,6 @@ noinst_HEADERS = \
 	src/openslide-error.h \
 	src/openslide-hash.h \
 	src/openslide-private.h
-
 
 # common program code
 
@@ -99,12 +108,11 @@ common_libopenslide_common_a_SOURCES = \
 	common/openslide-common-fail.c \
 	common/openslide-common-fd.c
 
-COMMON_CPPFLAGS = $(GLIB2_CFLAGS) -I$(top_srcdir)/src -I$(top_srcdir)/common
-COMMON_LDADD = common/libopenslide-common.a src/libopenslide.la $(GLIB2_LIBS)
+COMMON_CPPFLAGS = $(GLIB2_CFLAGS) $(GIO2_WINDOWS_CFLAGS) $(SQLITE3_CFLAGS) $(LIBJXR_CFLAGS) -I$(top_srcdir)/src -I$(top_srcdir)/common
+COMMON_LDADD = common/libopenslide-common.a src/libopenslide.la $(GLIB2_LIBS) $(GIO2_WINDOWS_LIBS) $(SQLITE3_LIBS) $(LIBJXR_LIBS)
 
 
 # test
-
 noinst_PROGRAMS = test/test test/try_open test/parallel test/query \
 	test/extended test/mosaic test/profile
 noinst_SCRIPTS = test/driver
@@ -161,18 +169,21 @@ test/driver: test/driver.in Makefile
 # show-properties
 bin_PROGRAMS = tools/openslide-show-properties
 man_MANS = tools/openslide-show-properties.1
+
 tools_openslide_show_properties_CPPFLAGS = $(COMMON_CPPFLAGS)
 tools_openslide_show_properties_LDADD = $(COMMON_LDADD)
 
 # quickhash1sum
 bin_PROGRAMS += tools/openslide-quickhash1sum
 man_MANS += tools/openslide-quickhash1sum.1
+
 tools_openslide_quickhash1sum_CPPFLAGS = $(COMMON_CPPFLAGS)
 tools_openslide_quickhash1sum_LDADD = $(COMMON_LDADD)
 
 # write-png
 bin_PROGRAMS += tools/openslide-write-png
 man_MANS += tools/openslide-write-png.1
+
 tools_openslide_write_png_CPPFLAGS = $(COMMON_CPPFLAGS) $(LIBPNG_CFLAGS)
 tools_openslide_write_png_LDADD = $(COMMON_LDADD) $(LIBPNG_LIBS)
 

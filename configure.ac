@@ -124,16 +124,41 @@ AC_COMPILE_IFELSE([AC_LANG_SOURCE([
 ])
 CFLAGS="$old_CFLAGS"
 
-PKG_CHECK_MODULES(GLIB2, [glib-2.0 >= 2.16, gthread-2.0, gio-2.0, gobject-2.0])
+## HACK: glib 2.12
+PKG_CHECK_MODULES(GLIB2, [ glib-2.0 >= 2.12, gthread-2.0 >= 2.12 ])
+PKG_CHECK_MODULES(GIO2_WINDOWS, [ gio-windows-2.0 >= 2.12 ], [
+  dnl This is the HAVE_GIO2_WINDOWS autoconf output variable
+  AC_DEFINE([HAVE_GIO2_WINDOWS], [1], [Define to 1 if you have GIO2_WINDOWS >= 2.12])
+  dnl This is the HAVE_GIO2_WINDOWS autoconf internal variable
+  HAVE_GIO2_WINDOWS=1
+], [:] )
+old_LIBS="$LIBS"
+LIBS="$GLIB2_LIBS $GIO2_WINDOWS_LIBS $LIBS"
+AC_CHECK_FUNCS([g_option_context_get_help])
+LIBS="$old_LIBS"
+##
+
 PKG_CHECK_MODULES(CAIRO, [cairo >= 1.2])
 PKG_CHECK_MODULES(LIBPNG, [libpng > 1.2])
-PKG_CHECK_MODULES(GDKPIXBUF, [gdk-pixbuf-2.0 >= 2.14])
+PKG_CHECK_MODULES(GDKPIXBUF, [gdk-pixbuf-2.0 >= 2.10])
 PKG_CHECK_MODULES(LIBXML2, [libxml-2.0])
-PKG_CHECK_MODULES(SQLITE3, [sqlite3 >= 3.6.20])
 
 # optional
+PKG_CHECK_MODULES(SQLITE3, [sqlite3 >= 3.6.20], [
+  dnl This is the HAVE_SQLITE3 autoconf output variable
+  AC_DEFINE([HAVE_SQLITE3], [1], [Define to 1 if you have SQLITE3 >= 3.6.20])
+  dnl This is the HAVE_SQLITE3 autoconf internal variable
+  HAVE_SQLITE3=1
+], [:] )
+
+AM_CONDITIONAL([HAVE_SQLITE3], [test x$HAVE_SQLITE3 = x1])
+
 PKG_CHECK_MODULES(VALGRIND, [valgrind], [
   AC_DEFINE([HAVE_VALGRIND], [1], [Define to 1 if you have the Valgrind headers.])
+], [:])
+
+PKG_CHECK_MODULES(LIBJXR, [libjxr >= 1.1], [
+  AC_DEFINE([HAVE_LIBJXR], [1], [Define to 1 if you have the JPEG XR librarie and headers installed.])
 ], [:])
 
 gl_VISIBILITY

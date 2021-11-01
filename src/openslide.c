@@ -42,13 +42,16 @@ static const struct _openslide_format *formats[] = {
   &_openslide_format_mirax,
   &_openslide_format_hamamatsu_vms_vmu,
   &_openslide_format_hamamatsu_ndpi,
+#ifdef HAVE_SQLITE3
   &_openslide_format_sakura,
+#endif
   &_openslide_format_trestle,
   &_openslide_format_aperio,
   &_openslide_format_leica,
   &_openslide_format_philips,
   &_openslide_format_ventana,
   &_openslide_format_generic_tiff,
+  &_openslide_format_zeiss,
   NULL,
 };
 
@@ -501,7 +504,25 @@ static bool read_region(openslide_t *osr,
 
   // saturate those seams away!
   cairo_set_operator(cr, CAIRO_OPERATOR_SATURATE);
-
+  
+  uint8_t r = 0, g = 0, b = 0;
+  
+  if (_openslide_get_background_color_prop(osr, &r, &g, &b))
+  {
+    // Draw background using background color
+    //g_debug("Drawing background using color %d, %d, %d", r, g, b);
+    cairo_set_source_rgba( cr, 
+                           1.0 / 255 * r, 
+                           1.0 / 255 * g, 
+                           1.0 / 255 * b, 
+                           1.0);
+    cairo_rectangle(cr, 0, 0, w, h);
+    cairo_fill(cr);
+  
+    cairo_set_operator(cr, CAIRO_OPERATOR_ATOP);
+    cairo_set_source_rgba(cr, 0, 0, 0, 1.0);
+  }
+  
   if (level_in_range(osr, level)) {
     struct _openslide_level *l = osr->levels[level];
 
@@ -609,20 +630,20 @@ void openslide_read_region(openslide_t *osr,
       // paint
       if (!read_region(osr, cr, sx, sy, level, sw, sh, &tmp_err)) {
         cairo_destroy(cr);
-        goto OUT;
+        goto OPENSLIDE_LABEL_OUT;
       }
 
       // done
       if (!_openslide_check_cairo_status(cr, &tmp_err)) {
         cairo_destroy(cr);
-        goto OUT;
+        goto OPENSLIDE_LABEL_OUT;
       }
 
       cairo_destroy(cr);
     }
   }
 
-OUT:
+OPENSLIDE_LABEL_OUT:
   if (tmp_err) {
     _openslide_propagate_error(osr, tmp_err);
     if (dest) {
