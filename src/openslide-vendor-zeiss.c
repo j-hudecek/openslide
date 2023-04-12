@@ -856,7 +856,10 @@ static bool parse_xml_set_prop(openslide_t *osr, const char *xml,
   g_autofree char *size_s =
     _openslide_xml_xpath_get_string(ctx,
       "/ImageDocument/Metadata/Information/Image/SizeS/text()");
-  data->scene = (int32_t) atol(size_s);
+  if (size_s == NULL)
+	  data->scene = 1;
+  else
+      data->scene = (int32_t) atol(size_s);
 
   // in meter/pixel
   g_autofree char *mpp_x =
