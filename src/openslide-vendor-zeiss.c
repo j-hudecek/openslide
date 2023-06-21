@@ -225,6 +225,10 @@ struct z_region {
   int64_t x2;
   int64_t y2;
   int64_t max_downsample;
+  GArray* mask_rect_x1s;
+  GArray* mask_rect_y1s;
+  GArray* mask_rect_x2s;
+  GArray* mask_rect_y2s;
 };
 
 struct zeiss_ops_data {
@@ -264,8 +268,21 @@ static void destroy_subblk(struct czi_subblk *p) {
   g_slice_free(struct czi_subblk, p);
 }
 
-static void destroy_region(struct z_region *p) {
-  g_slice_free(struct z_region, p);
+static void destroy_region(struct z_region* p) {
+    if (p->mask_rect_x1s) {
+        g_array_free(p->mask_rect_x1s, TRUE);
+    }
+    if (p->mask_rect_x2s) {
+        g_array_free(p->mask_rect_x2s, TRUE);
+    }
+    if (p->mask_rect_y1s) {
+        g_array_free(p->mask_rect_y1s, TRUE);
+    }
+    if (p->mask_rect_y2s) {
+        g_array_free(p->mask_rect_y2s, TRUE );
+    }
+
+    g_slice_free(struct z_region, p);
 }
 
 static void destroy_ops_data(struct zeiss_ops_data *data) {
@@ -592,6 +609,18 @@ static bool read_data_from_subblk(const char *filename, int64_t zisraw_offset,
   return true;
 }
 
+//static void
+//rounded_rectangle(cairo_t* cr, int x, int y, int w, int h, int r)
+//{
+//    cairo_new_sub_path(cr);
+//    cairo_arc(cr, x + r, y + r, r, M_PI, 3 * M_PI / 2);
+//    cairo_arc(cr, x + w - r, y + r, r, 3 * M_PI / 2, 2 * M_PI);
+//    cairo_arc(cr, x + w - r, y + h - r, r, 0, M_PI / 2);
+//    cairo_arc(cr, x + r, y + h - r, r, M_PI / 2, M_PI);
+//    cairo_close_path(cr);
+//}
+
+
 static bool read_tile(openslide_t *osr, cairo_t *cr,
                       struct _openslide_level *level G_GNUC_UNUSED,
                       int64_t tid G_GNUC_UNUSED, void *tile_data,
@@ -624,6 +653,80 @@ static bool read_tile(openslide_t *osr, cairo_t *cr,
   surface = cairo_image_surface_create_for_data(img, CAIRO_FORMAT_RGB24,
                                                 sb->tw, sb->th, stride);
   cairo_set_source_surface(cr, surface, 0, 0);
+  if (sb->downsample_i > data->common_downsample / 4) {
+      struct z_region* r;
+      r = data->regions->pdata[sb->scene];
+      cairo_surface_t* target = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+          sb->tw, sb->th);
+      cairo_surface_t* smask = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+          sb->tw, sb->th);
+      //printf("applying mask, : %d, %d, %d, %d\n", sb->x1, sb->y1, sb->x2, sb->y2);
+      cairo_t* ic = cairo_create(smask);
+      cairo_t* tic = cairo_create(target);
+      cairo_set_source_rgba(tic, 1.0, 0.0, 0.0, 0.0);
+      cairo_rectangle(tic, 0, 0, sb->tw, sb->th);
+      cairo_fill(tic);
+
+      cairo_set_source_rgba(ic, 0.0, 0.0, 0.0, 0.0);
+      cairo_paint(ic);
+
+      cairo_set_source_rgba(ic, 1.0, 0, 1.0, 1.0);
+      //cairo_set_source_rgba(cr, sb->scene/2.0, 1.0, 1.0, 1.0);
+
+      //printf("applying mask, scene: %d, %ld\n", sb->scene, sb->downsample_i);
+      for (guint i = 0; i < r->mask_rect_x1s->len; i++) {
+          int32_t x1 = g_array_index(r->mask_rect_x1s, int32_t, i);
+          int32_t y1 = g_array_index(r->mask_rect_y1s, int32_t, i);
+          int32_t x2 = g_array_index(r->mask_rect_x2s, int32_t, i);
+          int32_t y2 = g_array_index(r->mask_rect_y2s, int32_t, i);
+          //printf("applying mask, : %d, %d, %d, %d, %d, to: %d, %d, %d, %d, at %ld, %ld, %ld, %ld on %d, %d\n",sb->scene, x1, y1, x2, y2, sb->x1, sb->y1, sb->x2, sb->y2, (x1 - sb->x1) / sb->downsample_i,
+          //    (y1 - sb->y1) / sb->downsample_i,
+          //    (x2 - sb->x1) / sb->downsample_i,
+          //    (y2 - sb->y1) / sb->downsample_i, sb->tw, sb->th);
+          //printf("applying mask, : %d:  %d, %d, (%d, %d), to: %d, %d, (%d, %d), at %ld, %ld, (%ld, %ld) on %d, %d\n",sb->scene, x1, y1, x2-x1, y2-y1, sb->x1, sb->y1, sb->x2 - sb->x1, sb->y2 - sb->y1, (x1 - sb->x1) / sb->downsample_i,
+          //    (y1 - sb->y1) / sb->downsample_i,
+          //    (x2 - sb->x1) / sb->downsample_i - (x1 - sb->x1) / sb->downsample_i,
+          //    (y2 - sb->y1) / sb->downsample_i - (y1 - sb->y1) / sb->downsample_i, sb->tw, sb->th);
+          cairo_set_operator(tic, CAIRO_OPERATOR_OVER);
+          cairo_rectangle(ic,
+              (x1 - sb->x1) / sb->downsample_i -1,
+              (y1 - sb->y1) / sb->downsample_i -1,
+              (x2 - sb->x1) / sb->downsample_i - (x1 - sb->x1) / sb->downsample_i +2,
+              (y2 - sb->y1) / sb->downsample_i - (y1 - sb->y1) / sb->downsample_i + 2) ;
+          //rounded_rectangle(ic,
+          //    (x1 - sb->x1) / sb->downsample_i,
+          //    (y1 - sb->y1) / sb->downsample_i,
+          //    (x2 - sb->x1) / sb->downsample_i - (x1 - sb->x1) / sb->downsample_i,
+          //    (y2 - sb->y1) / sb->downsample_i - (y1 - sb->y1) / sb->downsample_i,
+          //    5);
+          //cairo_stroke(ic);
+          //cairo_rectangle(ic,
+          //    0, //- sb->x1 / sb->downsample_i, 
+          //    0,// - sb->y1 / sb->downsample_i,
+          //    200,// - sb->x1 / sb->downsample_i,
+          //    200);// -sb->y1 / sb->downsample_i);
+
+          cairo_fill(ic);
+      }
+      cairo_set_source_surface(tic, surface, 0, 0);
+      cairo_mask_surface(tic, smask, 0, 0);
+      //cairo_rectangle(ic,
+      //        0, //- sb->x1 / sb->downsample_i, 
+      //        0,// - sb->y1 / sb->downsample_i,
+      //        200,// - sb->x1 / sb->downsample_i,
+      //        200);// -sb->y1 / sb->downsample_i);
+//          cairo_surface_write_to_png(smask, "smask.png");
+//        cairo_surface_write_to_png(surface, "surface.png");
+//          printf("%d\n", ret);
+//          cairo_surface_write_to_png(target, "target.png");
+//          cairo_paint(tic);
+      cairo_set_source_surface(cr, target, 0, 0);
+      cairo_paint(cr);
+      //          cairo_surface_write_to_png(target, "res.png");
+      //          printf("%d", 1 / 0);
+      cairo_destroy(ic);
+      cairo_surface_destroy(smask);
+  }
   cairo_paint(cr);
   return true;
 }
@@ -678,8 +781,25 @@ static void init_range_grids(openslide_t *osr) {
                                    (double) b->x1 / b->downsample_i ,
                                    (double) b->y1 / b->downsample_i ,
                                    (double) b->tw, (double) b->th, b);
-  }
+    if (b->downsample_i == data->common_downsample / 4) {
+        struct z_region* r;
 
+        r = data->regions->pdata[b->scene];
+        if (!r->mask_rect_x1s) {
+            //printf("initting mask, downsample: %ld, common downsample: %ld, scene: %d\n", b->downsample_i, data->common_downsample, b->scene);
+            r->mask_rect_x1s = g_array_new(FALSE, FALSE, sizeof(int32_t));
+            r->mask_rect_y1s = g_array_new(FALSE, FALSE, sizeof(int32_t));
+            r->mask_rect_x2s = g_array_new(FALSE, FALSE, sizeof(int32_t));
+            r->mask_rect_y2s = g_array_new(FALSE, FALSE, sizeof(int32_t));
+        }
+        g_array_append_val(r->mask_rect_x1s, b->x1);
+        g_array_append_val(r->mask_rect_y1s, b->y1);
+        g_array_append_val(r->mask_rect_x2s, b->x2);
+        g_array_append_val(r->mask_rect_y2s, b->y2);
+        //printf("adding %d, %d (%d, %d) t:(%d, %d)\n", b->x1, b->y1, b->x2 - b->x1, b->y2 - b->y1, b->tw, b->th);
+    }
+  }
+  //printf("initting mask done, rect counts: %d, %d, %d\n", ((struct z_region* )data->regions->pdata[0])->mask_rect_x1s->len, ((struct z_region*)data->regions->pdata[1])->mask_rect_x1s->len, ((struct z_region*)data->regions->pdata[2])->mask_rect_x1s->len);
   g_hash_table_foreach(data->grids, (GHFunc)finish_adding_tiles, NULL);
 }
 
