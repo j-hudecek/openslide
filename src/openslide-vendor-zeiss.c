@@ -225,6 +225,8 @@ struct z_region {
   int64_t x2;
   int64_t y2;
   int64_t max_downsample;
+  cairo_surface_t* mask;
+  cairo_surface_t* mask2;
   GArray* mask_rect_x1s;
   GArray* mask_rect_y1s;
   GArray* mask_rect_x2s;
@@ -281,7 +283,10 @@ static void destroy_region(struct z_region* p) {
     if (p->mask_rect_y2s) {
         g_array_free(p->mask_rect_y2s, TRUE );
     }
-
+    if (p->mask)
+        cairo_surface_destroy(p->mask);
+    if (p->mask2)
+        cairo_surface_destroy(p->mask2);
     g_slice_free(struct z_region, p);
 }
 
@@ -653,81 +658,41 @@ static bool read_tile(openslide_t *osr, cairo_t *cr,
   surface = cairo_image_surface_create_for_data(img, CAIRO_FORMAT_RGB24,
                                                 sb->tw, sb->th, stride);
   cairo_set_source_surface(cr, surface, 0, 0);
-  if (sb->downsample_i > data->common_downsample / 4) {
+  //FIX for overlapping scenes: on highest levels apply the transparency masks to the decoded data 
+  //     before drawing it on the resulting cairo surface for the tile
+  if (data->scene > 1 && sb->downsample_i > data->common_downsample / 4) {
       struct z_region* r;
       r = data->regions->pdata[sb->scene];
+      //first we need to draw the RGB24 image on ARGB32 surface to have the transparency
       cairo_surface_t* target = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
           sb->tw, sb->th);
-      cairo_surface_t* smask = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
-          sb->tw, sb->th);
       //printf("applying mask, : %d, %d, %d, %d\n", sb->x1, sb->y1, sb->x2, sb->y2);
-      cairo_t* ic = cairo_create(smask);
       cairo_t* tic = cairo_create(target);
+
       cairo_set_source_rgba(tic, 1.0, 0.0, 0.0, 0.0);
       cairo_rectangle(tic, 0, 0, sb->tw, sb->th);
       cairo_fill(tic);
 
-      cairo_set_source_rgba(ic, 0.0, 0.0, 0.0, 0.0);
-      cairo_paint(ic);
-
-      cairo_set_source_rgba(ic, 1.0, 0, 1.0, 1.0);
-      //cairo_set_source_rgba(cr, sb->scene/2.0, 1.0, 1.0, 1.0);
-
       //printf("applying mask, scene: %d, %ld\n", sb->scene, sb->downsample_i);
-      for (guint i = 0; i < r->mask_rect_x1s->len; i++) {
-          int32_t x1 = g_array_index(r->mask_rect_x1s, int32_t, i);
-          int32_t y1 = g_array_index(r->mask_rect_y1s, int32_t, i);
-          int32_t x2 = g_array_index(r->mask_rect_x2s, int32_t, i);
-          int32_t y2 = g_array_index(r->mask_rect_y2s, int32_t, i);
-          //printf("applying mask, : %d, %d, %d, %d, %d, to: %d, %d, %d, %d, at %ld, %ld, %ld, %ld on %d, %d\n",sb->scene, x1, y1, x2, y2, sb->x1, sb->y1, sb->x2, sb->y2, (x1 - sb->x1) / sb->downsample_i,
-          //    (y1 - sb->y1) / sb->downsample_i,
-          //    (x2 - sb->x1) / sb->downsample_i,
-          //    (y2 - sb->y1) / sb->downsample_i, sb->tw, sb->th);
-          //printf("applying mask, : %d:  %d, %d, (%d, %d), to: %d, %d, (%d, %d), at %ld, %ld, (%ld, %ld) on %d, %d\n",sb->scene, x1, y1, x2-x1, y2-y1, sb->x1, sb->y1, sb->x2 - sb->x1, sb->y2 - sb->y1, (x1 - sb->x1) / sb->downsample_i,
-          //    (y1 - sb->y1) / sb->downsample_i,
-          //    (x2 - sb->x1) / sb->downsample_i - (x1 - sb->x1) / sb->downsample_i,
-          //    (y2 - sb->y1) / sb->downsample_i - (y1 - sb->y1) / sb->downsample_i, sb->tw, sb->th);
-          cairo_set_operator(tic, CAIRO_OPERATOR_OVER);
-          cairo_rectangle(ic,
-              (x1 - sb->x1) / sb->downsample_i -1,
-              (y1 - sb->y1) / sb->downsample_i -1,
-              (x2 - sb->x1) / sb->downsample_i - (x1 - sb->x1) / sb->downsample_i +2,
-              (y2 - sb->y1) / sb->downsample_i - (y1 - sb->y1) / sb->downsample_i + 2) ;
-          //rounded_rectangle(ic,
-          //    (x1 - sb->x1) / sb->downsample_i,
-          //    (y1 - sb->y1) / sb->downsample_i,
-          //    (x2 - sb->x1) / sb->downsample_i - (x1 - sb->x1) / sb->downsample_i,
-          //    (y2 - sb->y1) / sb->downsample_i - (y1 - sb->y1) / sb->downsample_i,
-          //    5);
-          //cairo_stroke(ic);
-          //cairo_rectangle(ic,
-          //    0, //- sb->x1 / sb->downsample_i, 
-          //    0,// - sb->y1 / sb->downsample_i,
-          //    200,// - sb->x1 / sb->downsample_i,
-          //    200);// -sb->y1 / sb->downsample_i);
 
-          cairo_fill(ic);
-      }
       cairo_set_source_surface(tic, surface, 0, 0);
-      cairo_mask_surface(tic, smask, 0, 0);
-      //cairo_rectangle(ic,
-      //        0, //- sb->x1 / sb->downsample_i, 
-      //        0,// - sb->y1 / sb->downsample_i,
-      //        200,// - sb->x1 / sb->downsample_i,
-      //        200);// -sb->y1 / sb->downsample_i);
-//          cairo_surface_write_to_png(smask, "smask.png");
-//        cairo_surface_write_to_png(surface, "surface.png");
-//          printf("%d\n", ret);
-//          cairo_surface_write_to_png(target, "target.png");
-//          cairo_paint(tic);
+      //now we can draw this surface using the transparency mask corresponding to the current level
+      //the mask begins at start of region so subblocks coordinates must be subtracted from regions' coords and downsampled
+      if (sb->downsample_i == data->common_downsample)
+         cairo_mask_surface(tic, r->mask, (r->x1-sb->x1) / sb->downsample_i, (r->y1 - sb->y1) / sb->downsample_i);
+      else
+         cairo_mask_surface(tic, r->mask2, (r->x1 - sb->x1) / sb->downsample_i, (r->y1 - sb->y1) / sb->downsample_i);
+      //uncomment to see progress of drawing
+      //          cairo_surface_write_to_png(surface, "surface.png");
+      //          cairo_surface_write_to_png(target, "target.png");
       cairo_set_source_surface(cr, target, 0, 0);
+      //finally paint the ARGB32 masked subblock to the tile's surface
       cairo_paint(cr);
-      //          cairo_surface_write_to_png(target, "res.png");
-      //          printf("%d", 1 / 0);
-      cairo_destroy(ic);
-      cairo_surface_destroy(smask);
+      cairo_surface_destroy(target);
+      cairo_destroy(tic);
   }
-  cairo_paint(cr);
+  else
+    cairo_paint(cr);
   return true;
 }
 
@@ -781,7 +746,11 @@ static void init_range_grids(openslide_t *osr) {
                                    (double) b->x1 / b->downsample_i ,
                                    (double) b->y1 / b->downsample_i ,
                                    (double) b->tw, (double) b->th, b);
-    if (b->downsample_i == data->common_downsample / 4) {
+    //FIX for overlapping scenes: use subblocks on 3rd level (i.e. an intermediate level) to construct
+    //     transparency masks for the highest and second highest level (i.e. least resolution). These
+    //     levels are most impacted by the overlapping. 
+    //   Step 1: collect coordinates of the subblocks on this level
+    if (data->scene > 1 && b->downsample_i == data->common_downsample / 8) {
         struct z_region* r;
 
         r = data->regions->pdata[b->scene];
@@ -799,7 +768,69 @@ static void init_range_grids(openslide_t *osr) {
         //printf("adding %d, %d (%d, %d) t:(%d, %d)\n", b->x1, b->y1, b->x2 - b->x1, b->y2 - b->y1, b->tw, b->th);
     }
   }
-  //printf("initting mask done, rect counts: %d, %d, %d\n", ((struct z_region* )data->regions->pdata[0])->mask_rect_x1s->len, ((struct z_region*)data->regions->pdata[1])->mask_rect_x1s->len, ((struct z_region*)data->regions->pdata[2])->mask_rect_x1s->len);
+
+  //Step 2 of the FIX: draw the rectangles of the collected subblocks as solids on a transparency mask and keep it for read_tile
+  //       transparency masks are as big as the region
+  if (data->scene > 1) {
+      for (int j = 0; j < data->scene; j++) {
+          struct z_region* r;
+          r = data->regions->pdata[j];
+          int ds = data->common_downsample;
+          int w = (r->x2 - r->x1) / ds;
+          int h = (r->y2 - r->y1) / ds;
+          r->mask = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
+          //mask2 for second highest level
+          r->mask2 = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w * 2, h * 2);
+          //printf("applying mask, : %d, %d, %d, %d\n", sb->x1, sb->y1, sb->x2, sb->y2);
+          cairo_t* tic = cairo_create(r->mask);
+          cairo_t* tic2 = cairo_create(r->mask2);
+          //fill everything with fully transparent color
+          cairo_set_source_rgba(tic, 1.0, 0.0, 0.0, 0.0);
+          cairo_rectangle(tic, 0, 0, w, h);
+          cairo_fill(tic);
+
+          cairo_set_source_rgba(tic2, 1.0, 0.0, 0.0, 0.0);
+          cairo_rectangle(tic2, 0, 0, w, h);
+          cairo_fill(tic2);
+
+          //draw using fully opaque color
+          cairo_set_source_rgba(tic, 1.0, 0.0, 0.0, 1.0);
+          cairo_set_source_rgba(tic2, 1.0, 0.0, 0.0, 1.0);
+          for (guint i = 0; i < r->mask_rect_x1s->len; i++) {
+              int32_t x1 = g_array_index(r->mask_rect_x1s, int32_t, i);
+              int32_t y1 = g_array_index(r->mask_rect_y1s, int32_t, i);
+              int32_t x2 = g_array_index(r->mask_rect_x2s, int32_t, i);
+              int32_t y2 = g_array_index(r->mask_rect_y2s, int32_t, i);
+              //not sure if this is really needed
+              cairo_set_operator(tic, CAIRO_OPERATOR_OVER);
+              //remove region offset from rectangle coords, downsample to the highest level, add 1 on each side to prevent rounding issues
+              cairo_rectangle(tic,
+                  (x1 - r->x1) / ds - 1,
+                  (y1 - r->y1) / ds - 1,
+                  (x2 - r->x1) / ds - (x1 - r->x1) / ds + 2,
+                  (y2 - r->y1) / ds - (y1 - r->y1) / ds + 2);
+
+              cairo_fill(tic);
+
+              cairo_set_operator(tic2, CAIRO_OPERATOR_OVER);
+              cairo_rectangle(tic2,
+                  (x1 - r->x1) / (ds / 2) - 1,
+                  (y1 - r->y1) / (ds / 2) - 1,
+                  (x2 - r->x1) / (ds / 2) - (x1 - r->x1) / (ds / 2) + 2,
+                  (y2 - r->y1) / (ds / 2) - (y1 - r->y1) / (ds / 2) + 2);
+
+              cairo_fill(tic2);
+
+          }
+          cairo_destroy(tic);
+          cairo_destroy(tic2);
+      }
+      //uncomment this to inspect the masks
+      //cairo_surface_write_to_png(((struct z_region*)data->regions->pdata[0])->mask, "mask0.png");
+      //cairo_surface_write_to_png(((struct z_region*)data->regions->pdata[1])->mask, "mask1.png");
+      //cairo_surface_write_to_png(((struct z_region*)data->regions->pdata[2])->mask, "mask2.png");
+      //printf("initting mask done, rect counts: %d, %d, %d\n", ((struct z_region* )data->regions->pdata[0])->mask_rect_x1s->len, ((struct z_region*)data->regions->pdata[1])->mask_rect_x1s->len, ((struct z_region*)data->regions->pdata[2])->mask_rect_x1s->len);
+  }
   g_hash_table_foreach(data->grids, (GHFunc)finish_adding_tiles, NULL);
 }
 
