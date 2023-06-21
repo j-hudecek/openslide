@@ -419,7 +419,7 @@ static bool read_subblk_dir(struct zeiss_ops_data *data, GError **err) {
   size_t len;
   size_t total = 0;
 
-  data->subblks = g_ptr_array_new_full(64, (GDestroyNotify) destroy_subblk);
+  data->subblks = g_ptr_array_new_full(1024, (GDestroyNotify) destroy_subblk);
   g_autoptr(_openslide_file) f = _openslide_fopen(data->filename, err);
   if (!f) {
     return false;
