@@ -1,3 +1,4 @@
+
 /*
  *  OpenSlide, a library for reading whole slide image files
  *
@@ -191,19 +192,6 @@ static bool philips_detect(const char *filename G_GNUC_UNUSED,
   if (!tl) {
     g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                 "Not a TIFF file");
-    return false;
-  }
-
-  // check Software field
-  const char *software = _openslide_tifflike_get_buffer(tl, 0,
-                                                        TIFFTAG_SOFTWARE,
-                                                        err);
-  if (!software) {
-    return false;
-  }
-  if (!g_str_has_prefix(software, PHILIPS_SOFTWARE)) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Not a Philips slide");
     return false;
   }
 
