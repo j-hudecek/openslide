@@ -181,12 +181,17 @@ static void set_resolution_prop(openslide_t *osr, TIFF *tiff,
   float f;
   uint16_t unit;
 
-  if (TIFFGetFieldDefaulted(tiff, TIFFTAG_RESOLUTIONUNIT, &unit) &&
-      TIFFGetField(tiff, tag, &f) &&
-      unit == RESUNIT_CENTIMETER) {
+  if (!TIFFGetFieldDefaulted(tiff, TIFFTAG_RESOLUTIONUNIT, &unit) ||
+      !TIFFGetField(tiff, tag, &f))
+         return;
+  if (unit == RESUNIT_CENTIMETER) {
+     g_hash_table_insert(osr->properties, g_strdup(property_name),
+                         _openslide_format_double(10000.0 / f));
+  } else if (unit == RESUNIT_INCH) {
     g_hash_table_insert(osr->properties, g_strdup(property_name),
-                        _openslide_format_double(10000.0 / f));
+                        _openslide_format_double(25400.0 / f));
   }
+
 }
 
 static bool generic_tiff_open(openslide_t *osr,
