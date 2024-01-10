@@ -1063,7 +1063,7 @@ static void store_and_hash_properties(struct _openslide_tifflike *tl,
   store_float_property(tl, dir, osr, "tiff.XPosition", TIFFTAG_XPOSITION);
   store_float_property(tl, dir, osr, "tiff.YPosition", TIFFTAG_YPOSITION);
 
-    // special
+  // special
   int64_t resolution_unit =
     _openslide_tifflike_get_uint(tl, dir, TIFFTAG_RESOLUTIONUNIT, &tmp_err);
   if (tmp_err) {
@@ -1080,17 +1080,6 @@ static void store_and_hash_properties(struct _openslide_tifflike *tl,
     break;
   case RESUNIT_CENTIMETER:
     result = "centimeter";
-    if (!g_hash_table_lookup(osr->properties, g_strdup(OPENSLIDE_PROPERTY_NAME_MPP_X))) {
-       //only use XResolution if we don't have anything better
-       double value = _openslide_tifflike_get_float(tl, dir, TIFFTAG_XRESOLUTION, &tmp_err);
-       if (!tmp_err) {
-         value = 10000 / value; //pixels per centimeter to microns per pixel
-         g_hash_table_insert(osr->properties,
-                             g_strdup(OPENSLIDE_PROPERTY_NAME_MPP_X),
-                            _openslide_format_double(value));
-       }
-       g_clear_error(&tmp_err);
-    }
     break;
   default:
     result = "unknown";
