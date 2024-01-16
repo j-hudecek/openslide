@@ -23,7 +23,7 @@ executable(
 )
 executable(
   'profile', 'profile.c',
-  dependencies : [test_deps, valgrind_dep],
+  dependencies : test_deps,
 )
 executable(
   'query', 'query.c',

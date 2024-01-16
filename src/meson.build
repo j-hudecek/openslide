@@ -31,10 +31,10 @@ else
 endif
 
 # Public headers
-openslide_headers = [
+openslide_headers = files(
   'openslide.h',
   'openslide-features.h',
-]
+)
 include_subdir = 'openslide'
 install_headers(
   openslide_headers,
@@ -46,6 +46,7 @@ openslide_sources = [
   'openslide.c',
   'openslide-cache.c',
   openslide_dll_o,
+  'openslide-decode-dicom.c',
   'openslide-decode-gdkpixbuf.c',
   'openslide-decode-jp2k.c',
   'openslide-decode-jpeg.c',
@@ -62,11 +63,12 @@ openslide_sources = [
   openslide_tables_c,
   'openslide-util.c',
   'openslide-vendor-aperio.c',
+  'openslide-vendor-dicom.c',
   'openslide-vendor-generic-tiff.c',
   'openslide-vendor-hamamatsu.c',
   'openslide-vendor-leica.c',
   'openslide-vendor-mirax.c',
-  'openslide-vendor-philips.c',
+  'openslide-vendor-philips-tiff.c',
   'openslide-vendor-sakura.c',
   'openslide-vendor-synthetic.c',
   'openslide-vendor-trestle.c',
@@ -75,7 +77,8 @@ openslide_sources = [
 libopenslide = library('openslide',
   openslide_sources,
   version : soversion,
-  c_args : ['-D_OPENSLIDE_BUILDING_DLL', '-DG_LOG_DOMAIN="Openslide"'],
+  c_args : ['-D_OPENSLIDE_BUILDING_DLL', '-DG_LOG_DOMAIN="OpenSlide"'],
+  link_args : libopenslide_link_args,
   gnu_symbol_visibility : visibility,
   include_directories : config_h_include,
   dependencies : [
@@ -84,6 +87,7 @@ libopenslide = library('openslide',
     gobject_dep,
     gdk_pixbuf_dep,
     cairo_dep,
+    dicom_dep,
     sqlite_dep,
     xml_dep,
     tiff_dep,

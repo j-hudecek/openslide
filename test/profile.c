@@ -26,11 +26,6 @@
 #include <openslide.h>
 #include "openslide-common.h"
 
-#include "config.h"
-#ifdef HAVE_VALGRIND
-#include <callgrind.h>
-#endif
-
 #define BUFWIDTH    1000
 #define BUFHEIGHT   1000
 #define MAXWIDTH   10000
@@ -45,13 +40,7 @@ int main(int argc, char **argv) {
   int level = atoi(argv[2]);
 
   g_autoptr(openslide_t) osr = openslide_open(path);
-  if (!osr) {
-    common_fail("Couldn't open %s", path);
-  }
-  const char *err = openslide_get_error(osr);
-  if (err) {
-    common_fail("Open failed: %s", err);
-  }
+  common_fail_on_error(osr, "Couldn't open %s", path);
   if (level >= openslide_get_level_count(osr)) {
     common_fail("No such level: %d", level);
   }
@@ -84,10 +73,6 @@ int main(int argc, char **argv) {
   printf("Reading (%"PRId64", %"PRId64") in level %d for "
          "%"PRId64" x %"PRId64"\n\n", x, y, level, w, h);
 
-#ifdef HAVE_VALGRIND
-  CALLGRIND_START_INSTRUMENTATION;
-#endif
-
   for (int yy = 0; yy < h; yy += BUFHEIGHT) {
     for (int xx = 0; xx < w; xx += BUFWIDTH) {
       openslide_read_region(osr, buf, x + xx, y + yy, level,
@@ -95,14 +80,7 @@ int main(int argc, char **argv) {
     }
   }
 
-#ifdef HAVE_VALGRIND
-  CALLGRIND_STOP_INSTRUMENTATION;
-#endif
-
-  err = openslide_get_error(osr);
-  if (err) {
-    common_fail("Read failed: %s", err);
-  }
+  common_fail_on_error(osr, "Read failed");
 
   return 0;
 }
