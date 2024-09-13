@@ -1012,6 +1012,7 @@ static bool olympus_open_ets(openslide_t *osr, const char *filename,
   // set background property
   _openslide_set_background_color_prop(osr,
     eh->backgroundColor[0], eh->backgroundColor[1], eh->backgroundColor[2]);
+  g_slice_free(struct sis_header, sh);
 
   return true;
 
@@ -1020,7 +1021,7 @@ FAIL:
   if (f) {
     fclose(f);
   }
-
+  g_slice_free(struct sis_header, sh);
   if (levels != NULL) {
     for (uint32_t i = 0; i < level_count; ++i) {
       struct level *l = levels[i];
@@ -1691,9 +1692,8 @@ static bool olympus_open_vsi(openslide_t *osr, const char *filename,
   }
 
   //g_free(slidedat_file);
-
   _openslide_tiffcache_put(tc, tiff);
-
+  _openslide_tiffcache_destroy(tc);
   return success;
 
 FAIL:
