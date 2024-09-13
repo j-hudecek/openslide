@@ -838,7 +838,10 @@ static void destroy_ets(openslide_t *osr) {
     _openslide_grid_destroy(l->grid);
     g_slice_free(struct level, l);
   }
+  struct olympus_ops_data *data = osr->data;
+  g_free(data->tiles);
   g_slice_free1(sizeof(struct olympus_ops_data), osr->data);
+	
 
   // the level array
   g_free(osr->levels);
