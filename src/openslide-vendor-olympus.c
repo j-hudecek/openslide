@@ -249,8 +249,9 @@ static enum slide_format _get_related_image_file(const char *filename, char **im
                                     GError **err) {
   // verify slidedat ETS or TIFF exists
 
-  char *basename = g_path_get_basename(filename);
-  basename = g_strndup(basename, strlen(basename) - strlen(VSI_EXT));
+  char *basenamefull = g_path_get_basename(filename);
+  char *basename = g_strndup(basenamefull, strlen(basenamefull) - strlen(VSI_EXT));
+  g_free(basenamefull);
 
   char *dirname = g_strndup(filename, strlen(filename) - strlen(VSI_EXT) - strlen(basename));
   char *slidedat_dir = g_strdup_printf(SLIDEDATA_DIRNAME, basename);
@@ -303,15 +304,20 @@ static enum slide_format _get_related_image_file(const char *filename, char **im
 
         if (is_valid)
           goto DONE;
+	g_free(current_file);
       }
 
       // If there is more than 1 file or something goes wrong -> FAILED
 
       g_free(slidedat_path);
+      g_dir_close(nested_dir);
+      g_free(data_dir);
+      g_dir_close(dir);
       g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                   "Impossible to find related image file");
       return SLIDE_FMT_UNKNOWN;
     }
+    g_free(nested_dir);
 
 
 DONE:
@@ -319,27 +325,38 @@ DONE:
     if (g_str_has_suffix(current_file, ETS_EXT)) {
 
       *image_filename = current_file;
-      g_free(data_dir);
       g_free(slidedat_path);
+      g_dir_close(nested_dir);
+      g_free(data_dir);
+      g_dir_close(dir);
       return SLIDE_FMT_ETS;
 
     } else if (g_str_has_suffix(current_file, TIF_EXT)) {
 
       *image_filename = current_file;
-      g_free(data_dir);
       g_free(slidedat_path);
+      g_dir_close(nested_dir);
+      g_free(data_dir);
+      g_dir_close(dir);
+
       return SLIDE_FMT_TIF;
 
     } else {
-
       g_free(slidedat_path);
+      g_dir_close(nested_dir);
       g_free(data_dir);
+      g_dir_close(dir);
+      g_free(current_file);
+
       g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                   "Impossible to find related image file");
       return SLIDE_FMT_UNKNOWN;
 
     }
+    g_free(current_file);
   }
+  g_dir_close(dir);
+  g_free(slidedat_path);
 
   return SLIDE_FMT_UNKNOWN;
 }
@@ -495,6 +512,7 @@ static bool olympus_vsi_detect(const char *filename G_GNUC_UNUSED,
       GError *tmp_err = NULL;
       struct _openslide_tifflike *tl_tif = _openslide_tifflike_create(slidedat_file, &tmp_err);
       bool ok_ets = olympus_ets_detect(slidedat_file, tl_tif, err);
+      g_free(slidedat_file);
       _openslide_tifflike_destroy(tl_tif);
       //g_free(slidedat_file);
       return ok_ets;
@@ -503,11 +521,13 @@ static bool olympus_vsi_detect(const char *filename G_GNUC_UNUSED,
       GError *tmp_err = NULL;
       struct _openslide_tifflike *tl_tif = _openslide_tifflike_create(slidedat_file, &tmp_err);
       bool ok_tif = olympus_tif_detect(slidedat_file, tl_tif, err);
+      g_free(slidedat_file);
       _openslide_tifflike_destroy(tl_tif);
       //g_free(slidedat_file);
       return ok_tif;
     } break;
     default: {
+      g_free(slidedat_file);
       g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                  "Corresponding slidedat file does not exist");
       return false;
@@ -683,7 +703,7 @@ static uint32_t *read_ets_image(openslide_t *osr,
     result = _openslide_jp2k_decode_buffer(dest,
                                            w, h,
                                            buffer, buflen,
-                                           -1,
+                                           OPENSLIDE_JP2K_YCBCR,
                                            err);
     break;
   //case FORMAT_PNG:
@@ -1260,28 +1280,28 @@ static struct tiff_image_desc *parse_xml_description(const char *xml,
     }
   }
 
-//  printf("----------device model: %s\n", img->mycroscope_manufacturer);
-//  printf("----------device version: %s\n", img->mycroscope_model);
-//  printf("----------%d lightsource\n", img->channels);
-//  for (int i = 0; i < img->channels; ++i) {
-//    printf("--------------lightsource %d: manufacturer %s; model %s\n",
-//      i, img->lightsources[i].manufacturer, img->lightsources[i].model);
-//  }
-//  printf("----------%d levels\n", img->levels);
-//  for (int i = 0; i < img->levels; ++i) {
-//    printf("--------------img %d: acquisition %s; size [%d, %d]; mpp [%f, %f]\n",
-//      i, img->img[i].creation_date, img->img[i].sizeX, img->img[i].sizeY,
-//      img->img[i].mpp_x, img->img[i].mpp_y);
-////    for (int j = 0; j < channels->nodesetval->nodeNr; ++j) {
-////      printf("----------------channel %s: emission_wavelength %d; color %d\n",
-////        img->img[i].ch[j].name,
-////        img->img[i].ch[j].emission_wavelength,
-////        img->img[i].ch[j].color);
-////    }
-////    for (int j = 0; j < channels->nodesetval->nodeNr; ++j) {
-////      printf("--------------exposure time %f\n", img->img[i].exposuretime[j]);
-////    }
-//  }
+  printf("----------device model: %s\n", img->mycroscope_manufacturer);
+  printf("----------device version: %s\n", img->mycroscope_model);
+  printf("----------%d lightsource\n", img->channels);
+  for (int i = 0; i < img->channels; ++i) {
+    printf("--------------lightsource %d: manufacturer %s; model %s\n",
+      i, img->lightsources[i].manufacturer, img->lightsources[i].model);
+  }
+  printf("----------%d levels\n", img->levels);
+  for (int i = 0; i < img->levels; ++i) {
+    printf("--------------img %d: acquisition %s; size [%d, %d]; mpp [%f, %f]\n",
+      i, img->img[i].creation_date, img->img[i].sizeX, img->img[i].sizeY,
+      img->img[i].mpp_x, img->img[i].mpp_y);
+    for (int j = 0; j < img->channels; ++j) {
+      printf("----------------channel %s: emission_wavelength %d; color %d\n",
+        img->img[i].ch[j].name,
+        img->img[i].ch[j].emission_wavelength,
+       img->img[i].ch[j].color);
+    }
+   for (int j = 0; j < img->channels; ++j) {
+      printf("--------------exposure time %f\n", img->img[i].exposuretime[j]);
+   }
+ }
 
 
   return img;
@@ -1524,10 +1544,10 @@ static bool olympus_open_vsi(openslide_t *osr, const char *filename,
       set_resolution_prop(osr, tiff, OPENSLIDE_PROPERTY_NAME_MPP_Y,
                           TIFFTAG_YRESOLUTION);
 
-      if (!_openslide_tiff_add_associated_image(osr, "macro", tc,
-                                                1, err)) {
-        goto FAIL;
-      }
+//      if (!_openslide_tiff_add_associated_image(osr, "macro", tc,
+//                                                1, err)) {
+//        goto FAIL;
+//      }
 
       success = olympus_open_ets(osr, filename, tl, quickhash1, err);
 
@@ -1584,10 +1604,10 @@ static bool olympus_open_vsi(openslide_t *osr, const char *filename,
       set_resolution_prop(osr, tiff, OPENSLIDE_PROPERTY_NAME_MPP_Y,
                           TIFFTAG_YRESOLUTION);
 
-      if (!_openslide_tiff_add_associated_image(osr, "macro", tc,
-                                                1, err)) {
-        goto FAIL;
-      }
+//      if (!_openslide_tiff_add_associated_image(osr, "macro", tc,
+//                                                1, err)) {
+//        goto FAIL;
+//      }
 
       success = olympus_open_tif(osr, filename, tl, quickhash1, err);
 
@@ -1640,10 +1660,13 @@ static bool olympus_open_vsi(openslide_t *osr, const char *filename,
   set_resolution_prop(osr, tiff, OPENSLIDE_PROPERTY_NAME_MPP_Y,
                       TIFFTAG_YRESOLUTION);
 
-  if (!_openslide_tiff_add_associated_image(osr, "macro", tc,
-                                            1, err)) {
-    goto FAIL;
-  }
+//  if (!_openslide_tiff_add_associated_image(osr, "macro", tc,
+  //                                          1, err)) {
+    //printf("Warning: macro image can't be loaded\n");
+//    g_clear_error(err);
+
+//    goto FAIL;
+//  }
 
   // verify slidedat ETS or TIFF exists
   char *slidedat_file = NULL;
