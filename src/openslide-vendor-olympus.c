@@ -514,6 +514,7 @@ static bool olympus_vsi_detect(const char *filename G_GNUC_UNUSED,
       bool ok_ets = olympus_ets_detect(slidedat_file, tl_tif, err);
       g_free(slidedat_file);
       _openslide_tifflike_destroy(tl_tif);
+      g_error_free (tmp_err);
       //g_free(slidedat_file);
       return ok_ets;
     } break;
@@ -840,6 +841,8 @@ static void destroy_ets(openslide_t *osr) {
   }
   struct olympus_ops_data *data = osr->data;
   g_free(data->tiles);
+  g_free((char*)data->datafile_path);
+
   g_slice_free1(sizeof(struct olympus_ops_data), osr->data);
 	
 
@@ -1013,6 +1016,7 @@ static bool olympus_open_ets(openslide_t *osr, const char *filename,
   _openslide_set_background_color_prop(osr,
     eh->backgroundColor[0], eh->backgroundColor[1], eh->backgroundColor[2]);
   g_slice_free(struct sis_header, sh);
+  g_slice_free(struct ets_header, eh);
 
   return true;
 
@@ -1690,8 +1694,6 @@ static bool olympus_open_vsi(openslide_t *osr, const char *filename,
       goto FAIL;
     } break;
   }
-
-  //g_free(slidedat_file);
   _openslide_tiffcache_put(tc, tiff);
   _openslide_tiffcache_destroy(tc);
   return success;
