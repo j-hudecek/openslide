@@ -47,6 +47,7 @@
 #include <math.h>
 #include <tiffio.h>
 #include <setjmp.h>
+#include <sys/stat.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 
 static const char ETS_EXT[] = ".ets";
@@ -241,7 +242,6 @@ static char *_get_parent_image_file(const char *filename) {
 
   char *vsifile_ = g_build_filename(imagedir, basename, NULL);
   char *vsifile = g_strconcat(vsifile_, VSI_EXT, NULL);
-
   return vsifile;
 }
 
@@ -266,13 +266,12 @@ static enum slide_format _get_related_image_file(const char *filename, char **im
   // list all files in directory
   GDir *dir;
   const gchar *slide_dir;
+  char * largest_file=0;
+  off_t largest_file_size = 0;
 
   dir = g_dir_open(slidedat_path, 0, err);
   while ((slide_dir = g_dir_read_name(dir))) {
 
-    // check directory name
-    if (strncmp(slide_dir, "stack1", 6) < 0)
-      continue;
 
     // DEBUG OPTIONS
     /***********************************************************************/
@@ -284,7 +283,7 @@ static enum slide_format _get_related_image_file(const char *filename, char **im
     //  continue;
     /***********************************************************************/
 
-    printf("VSI stack used: %s\n", slide_dir);
+    //printf("VSI stack used: %s\n", slide_dir);
 
     char *data_dir = g_build_filename(slidedat_path, slide_dir, NULL);
     char *current_file = NULL;
@@ -303,62 +302,57 @@ static enum slide_format _get_related_image_file(const char *filename, char **im
         bool is_valid = g_file_test(current_file, G_FILE_TEST_EXISTS);
 
         if (is_valid)
-          goto DONE;
-	g_free(current_file);
+        {
+            struct stat st;
+            if (lstat(current_file, &st) == -1) {
+              printf("lstat failed");
+              exit(1);
+            }
+            if (largest_file_size < st.st_size) {
+                largest_file_size = st.st_size;
+                g_free(largest_file);
+                largest_file = current_file;
+            }
+            else
+                g_free(current_file);
+        }
+	
       }
 
-      // If there is more than 1 file or something goes wrong -> FAILED
-
-      g_free(slidedat_path);
-      g_dir_close(nested_dir);
-      g_free(data_dir);
-      g_dir_close(dir);
-      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                  "Impossible to find related image file");
-      return SLIDE_FMT_UNKNOWN;
     }
-    g_free(nested_dir);
-
-
-DONE:
-
-    if (g_str_has_suffix(current_file, ETS_EXT)) {
-
-      *image_filename = current_file;
-      g_free(slidedat_path);
-      g_dir_close(nested_dir);
-      g_free(data_dir);
-      g_dir_close(dir);
-      return SLIDE_FMT_ETS;
-
-    } else if (g_str_has_suffix(current_file, TIF_EXT)) {
-
-      *image_filename = current_file;
-      g_free(slidedat_path);
-      g_dir_close(nested_dir);
-      g_free(data_dir);
-      g_dir_close(dir);
-
-      return SLIDE_FMT_TIF;
-
-    } else {
-      g_free(slidedat_path);
-      g_dir_close(nested_dir);
-      g_free(data_dir);
-      g_dir_close(dir);
-      g_free(current_file);
-
-      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                  "Impossible to find related image file");
-      return SLIDE_FMT_UNKNOWN;
-
-    }
-    g_free(current_file);
+    g_dir_close(nested_dir);
+    g_free(data_dir);
   }
-  g_dir_close(dir);
-  g_free(slidedat_path);
+  if (largest_file_size == 0) {
+    g_free(slidedat_path);
+    g_dir_close(dir);
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                "Impossible to find related image file");
+    return SLIDE_FMT_UNKNOWN;
+  }
 
-  return SLIDE_FMT_UNKNOWN;
+  if (g_str_has_suffix(largest_file, ETS_EXT)) {
+   *image_filename = largest_file;
+   g_free(slidedat_path);
+   g_dir_close(dir);
+   return SLIDE_FMT_ETS;
+
+  } else if (g_str_has_suffix(largest_file, TIF_EXT)) {
+
+   *image_filename = largest_file;
+   g_free(slidedat_path);
+   g_dir_close(dir);
+
+   return SLIDE_FMT_TIF;
+
+  } else {
+   g_free(slidedat_path);
+   g_dir_close(dir);
+
+   g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+               "Impossible to find related image file");
+   return SLIDE_FMT_UNKNOWN;
+  }
 }
 
 
@@ -704,7 +698,8 @@ static uint32_t *read_ets_image(openslide_t *osr,
     result = _openslide_jp2k_decode_buffer(dest,
                                            w, h,
                                            buffer, buflen,
-                                           OPENSLIDE_JP2K_YCBCR,
+//OPENSLIDE_JP2K_YCBCR,
+                                           OPENSLIDE_JP2K_RGB,
                                            err);
     break;
   //case FORMAT_PNG:
@@ -894,7 +889,6 @@ static bool olympus_open_ets(openslide_t *osr, const char *filename,
                 "Errors in ETS header");
     goto FAIL;
   }
-
   // individual tiles
   if (fseeko(f, sh->offsettiles, SEEK_SET)) {
     _openslide_io_error(err, "Couldn't seek to JPEG start");
