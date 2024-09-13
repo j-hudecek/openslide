@@ -110,13 +110,13 @@ static void write_png(openslide_t *osr, FILE *f,
   // start writing
   png_write_info(png_ptr, info_ptr);
 
-  uint32_t *dest = g_malloc(w * 4);
+  uint32_t *dest = g_malloc(h*w * 4);
   int32_t lines_to_draw = h;
   double ds = openslide_get_level_downsample(osr, level);
   int32_t yy = y / ds;
   while (lines_to_draw) {
     openslide_read_region(osr, dest,
-			  x, yy * ds, level, w, 1);
+			  x, yy * ds, 0, level, w, h);
 
     const char *err = openslide_get_error(osr);
     if (err) {
