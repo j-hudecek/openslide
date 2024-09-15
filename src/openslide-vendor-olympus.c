@@ -718,7 +718,7 @@ static uint32_t *read_ets_image(openslide_t *osr,
     g_assert_not_reached();
   }
 
-  g_free(buffer);
+  g_slice_free1(buflen, buffer);
   fclose(f);
 
   if (!result)
