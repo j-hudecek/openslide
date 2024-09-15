@@ -687,6 +687,7 @@ static uint32_t *read_ets_image(openslide_t *osr,
   if (!check)
     goto FAIL;
 
+  char *interpretation = g_hash_table_lookup(osr->properties, "olympus.photometric_interpretation");
   switch (format) {
   case FORMAT_JPEG:
     result = _openslide_jpeg_decode_buffer(buffer, buflen,
@@ -698,8 +699,7 @@ static uint32_t *read_ets_image(openslide_t *osr,
     result = _openslide_jp2k_decode_buffer(dest,
                                            w, h,
                                            buffer, buflen,
-//OPENSLIDE_JP2K_YCBCR,
-                                           OPENSLIDE_JP2K_RGB,
+                                           interpretation[0] == 'R' ? OPENSLIDE_JP2K_RGB : OPENSLIDE_JP2K_YCBCR,
                                            err);
     break;
   //case FORMAT_PNG:
@@ -1637,6 +1637,14 @@ static bool olympus_open_vsi(openslide_t *osr, const char *filename,
                 "Can't read compression scheme");
     goto FAIL;
   };
+  uint16_t interpretation;
+  if (!TIFFGetField(tiff, TIFFTAG_PHOTOMETRIC, &interpretation)) {
+    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                "Can't read photometric interpretation");
+    goto FAIL;
+  };
+  set_prop(osr, "olympus.photometric_interpretation", interpretation == PHOTOMETRIC_RGB ? "RGB" : "YCBCR");
+
   if (!TIFFIsCODECConfigured(compression)) {
     g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                 "Unsupported TIFF compression: %u", compression);
