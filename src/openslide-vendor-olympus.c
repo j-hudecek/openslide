@@ -270,6 +270,12 @@ static enum slide_format _get_related_image_file(const char *filename, char **im
   off_t largest_file_size = 0;
 
   dir = g_dir_open(slidedat_path, 0, err);
+  if (dir == NULL) {
+//	  g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+//                "Data folder missing");
+	  g_free(slidedat_path);
+	  return SLIDE_FMT_UNKNOWN;
+  }
   while ((slide_dir = g_dir_read_name(dir))) {
 
 
@@ -521,10 +527,15 @@ static bool olympus_vsi_detect(const char *filename G_GNUC_UNUSED,
       //g_free(slidedat_file);
       return ok_tif;
     } break;
+    case SLIDE_FMT_UNKNOWN: {
+      g_free(slidedat_file);
+      return false;
+    } break;			
     default: {
       g_free(slidedat_file);
-      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                 "Corresponding slidedat file does not exist");
+      if (err == NULL)
+	      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+        	         "Corresponding slidedat file does not exist");
       return false;
     } break;
   }
@@ -749,6 +760,9 @@ static bool read_ets_tile(openslide_t *osr,
 
   // TODO: Now we are keeping only the 1st channel!!
   struct tile *t = findtile(tiles, data->num_tiles, tile_col, tile_row, tile_channel, l->current_lvl);
+  if (t == NULL) {
+    return false;
+  }
   bool success = true;
 
   int32_t iw = l->image_width; // Tilew
