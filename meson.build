@@ -1,7 +1,7 @@
 project(
   'openslide',
   'c',
-  version : '4.0.0',
+  version : '4.0.0a',
   license : 'LGPL-2.1-only',
   default_options : [
     'buildtype=debugoptimized',
