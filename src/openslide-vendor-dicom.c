@@ -1284,6 +1284,18 @@ static bool dicom_open(openslide_t *osr,
   struct dicom_level *level0 = level_array->pdata[0];
   add_properties(osr, level0);
 
+  // add filenames for all files with the same series instance UID
+  guint fileCounter = 0;
+  for (guint level = 0; level < level_array->len; level++) { 
+ 	 struct dicom_level *levelStruct = level_array->pdata[level];
+	  for (guint i = 0; i < levelStruct->files->len; i++) {
+	    struct dicom_file *file = (struct dicom_file *) levelStruct->files->pdata[i];
+	    const char *basename = g_path_get_basename(file->filename);
+	    g_hash_table_insert(osr->properties,
+	                        g_strdup_printf("dicom.SeriesFilename%u", fileCounter++),
+        	                g_strdup(basename));
+	  }
+  }
   struct dicom_file *f = (struct dicom_file *) level0->files->pdata[0];
   (void) get_icc_profile(f, &osr->icc_profile_size);
 
