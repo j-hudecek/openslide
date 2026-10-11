@@ -20,19 +20,24 @@
  */
 
 #include <stdio.h>
-#include <unistd.h>
 #include <errno.h>
 #include "openslide-common.h"
 #include "slidetool.h"
 
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
 struct output open_output(const char *filename) {
   struct output out;
+  GError *tmp_err = NULL;
   if (filename) {
-    FILE *fp = fopen(filename, "wb");
-    if (!fp) {
-      common_fail("Can't open %s for writing: %s", filename, strerror(errno));
+    out.fp = common_fopen(filename, "wb", &tmp_err);
+    if (!out.fp) {
+      common_fail("%s", tmp_err->message);
     }
-    out.fp = fp;
   } else {
     if (isatty(1)) {
       common_fail("Will not write binary output to terminal");
@@ -45,11 +50,11 @@ struct output open_output(const char *filename) {
 void _close_output(struct output *out) {
   if (out->fp != stdout) {
     if (fclose(out->fp)) {
-      common_fail("Can't close output: %s", strerror(errno));
+      common_fail("Can't close output: %s", g_strerror(errno));
     }
   } else {
     if (fflush(out->fp)) {
-      common_fail("Can't flush stdout: %s", strerror(errno));
+      common_fail("Can't flush stdout: %s", g_strerror(errno));
     }
   }
 }

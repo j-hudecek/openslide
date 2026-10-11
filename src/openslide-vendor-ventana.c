@@ -135,6 +135,7 @@ static void destroy_level(struct level *l) {
   _openslide_grid_destroy(l->grid);
   g_free(l);
 }
+OPENSLIDE_DEFINE_G_DESTROY_NOTIFY_WRAPPER(destroy_level)
 
 static void destroy(openslide_t *osr) {
   struct ventana_ops_data *data = osr->data;
@@ -176,7 +177,7 @@ static bool read_subtile(openslide_t *osr,
                                             level, tile_col, tile_row,
                                             &cache_entry);
   if (!tiledata) {
-    g_autofree uint32_t *buf = g_malloc(tw * th * 4);
+    g_autofree uint32_t *buf = g_new(uint32_t, tw * th);
     if (!_openslide_tiff_read_tile(tiffl, tiff,
                                    buf, tile_col, tile_row,
                                    err)) {
@@ -272,7 +273,8 @@ static bool read_icc_profile(openslide_t *osr, void *dest, GError **err) {
     return false;
   }
 
-  return _openslide_tiff_read_icc_profile(osr, &l->tiffl, ct.tiff, dest, err);
+  return _openslide_tiff_read_icc_profile(ct.tiff, l->tiffl.dir,
+                                          dest, osr->icc_profile_size, err);
 }
 
 static const struct _openslide_ops ventana_ops = {
@@ -347,6 +349,7 @@ static void area_free(struct area *area) {
   g_free(area->tiles);
   g_free(area);
 }
+OPENSLIDE_DEFINE_G_DESTROY_NOTIFY_WRAPPER(area_free)
 
 static void bif_free(struct bif *bif) {
   for (int32_t i = 0; i < bif->num_areas; i++) {
@@ -466,7 +469,7 @@ static struct bif *parse_level0_xml(const char *xml,
 
   // walk AOIs
   g_autoptr(GPtrArray) area_array =
-    g_ptr_array_new_with_free_func((GDestroyNotify) area_free);
+    g_ptr_array_new_with_free_func(OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(area_free));
   double total_offset_x = 0;
   double total_offset_y = 0;
   int64_t total_x_weight = 0;
@@ -513,6 +516,12 @@ static struct bif *parse_level0_xml(const char *xml,
     // get tile counts
     PARSE_INT_ATTRIBUTE_OR_RETURN(info, ATTR_NUM_COLS, area->tiles_across, NULL);
     PARSE_INT_ATTRIBUTE_OR_RETURN(info, ATTR_NUM_ROWS, area->tiles_down, NULL);
+    if (area->tiles_across < 1 || area->tiles_down < 1) {
+      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
+                  "Area has invalid tile count %"PRId64"x%"PRId64,
+                  area->tiles_across, area->tiles_down);
+      return NULL;
+    }
 
     // get position
     // it seems these are always whole numbers, but they are sometimes
@@ -649,8 +658,9 @@ static bool parse_level_info(const char *desc,
   for (char **pair = pairs; *pair; pair++) {
     g_auto(GStrv) kv = g_strsplit(*pair, "=", 2);
     if (g_strv_length(kv) == 2) {
-      g_hash_table_insert(fields, kv[0], kv[1]);
-      g_free(g_steal_pointer(&kv));
+      g_hash_table_insert(fields,
+                          g_steal_pointer(&kv[0]),
+                          g_steal_pointer(&kv[1]));
     }
   }
 
@@ -664,9 +674,7 @@ static bool parse_level_info(const char *desc,
   }
 
   // parse level
-  gchar *endptr;
-  *level = g_ascii_strtoll(level_str, &endptr, 10);
-  if (level_str[0] == 0 || endptr[0] != 0) {
+  if (!_openslide_parse_int64(level_str, level)) {
     g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                 "Invalid level number");
     return false;
@@ -760,7 +768,7 @@ static bool ventana_open(openslide_t *osr, const char *filename,
 
   // walk directories
   g_autoptr(GPtrArray) level_array =
-    g_ptr_array_new_with_free_func((GDestroyNotify) destroy_level);
+    g_ptr_array_new_with_free_func(OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(destroy_level));
   g_autoptr(bif) bif = NULL;
   int64_t next_level = 0;
   double prev_magnification = INFINITY;
@@ -841,8 +849,7 @@ static bool ventana_open(openslide_t *osr, const char *filename,
       // verify that we can read this compression (hard fail if not)
       uint16_t compression;
       if (!TIFFGetField(ct.tiff, TIFFTAG_COMPRESSION, &compression)) {
-        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                    "Can't read compression scheme");
+        _openslide_tiff_error(err, ct.tiff, "Can't read compression scheme");
         return false;
       };
       if (!TIFFIsCODECConfigured(compression)) {
@@ -903,14 +910,14 @@ static bool ventana_open(openslide_t *osr, const char *filename,
     } else if (!strcmp(image_desc, MACRO_DESCRIPTION) ||
                !strcmp(image_desc, MACRO_DESCRIPTION2)) {
       // macro image
-      if (!_openslide_tiff_add_associated_image(osr, "macro", tc, dir,
+      if (!_openslide_tiff_add_associated_image(osr, "macro", tc, dir, NULL,
                                                 err)) {
         return false;
       }
 
     } else if (!strcmp(image_desc, THUMBNAIL_DESCRIPTION)) {
       // thumbnail image
-      if (!_openslide_tiff_add_associated_image(osr, "thumbnail", tc, dir,
+      if (!_openslide_tiff_add_associated_image(osr, "thumbnail", tc, dir, NULL,
                                                 err)) {
         return false;
       }
@@ -943,8 +950,7 @@ static bool ventana_open(openslide_t *osr, const char *filename,
   }
 
   // get icc profile size, if present
-  if (!_openslide_tiff_get_icc_profile_size(&level0->tiffl,
-                                            ct.tiff,
+  if (!_openslide_tiff_get_icc_profile_size(ct.tiff, level0->tiffl.dir,
                                             &osr->icc_profile_size,
                                             err)) {
     return false;

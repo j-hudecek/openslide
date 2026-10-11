@@ -25,17 +25,15 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
-#include <unistd.h>
 #include <glib.h>
 #include "openslide.h"
 #include "openslide-common.h"
-#include "config.h"
+#include "libtest.h"
 
-#ifdef HAVE_VALGRIND
-#include <valgrind.h>
+#ifndef _WIN32
+#include <unistd.h>
 #endif
 
-#define MAX_FDS 128
 #define TIME_ITERATIONS 5
 
 static gchar *vendor_check;
@@ -69,14 +67,6 @@ static void check_error(openslide_t *osr) {
   if (error != NULL) {
     fail("%s", error);
   }
-}
-
-static bool in_valgrind(void) {
-#ifdef HAVE_VALGRIND
-  return RUNNING_ON_VALGRIND;
-#else
-  return false;
-#endif
 }
 
 #define CHECK_RET(call, result)			\
@@ -144,7 +134,7 @@ static void check_props(openslide_t *osr) {
     const char *value = openslide_get_property_value(osr, key);
     check_error(osr);
 
-    if (!*expected_value) {
+    if (!strcmp(expected_value, "ABSENT")) {
       // value should be missing
       if (value != NULL) {
         fail("Property %s exists; should be missing", key);
@@ -153,7 +143,7 @@ static void check_props(openslide_t *osr) {
       if (value == NULL) {
         fail("Property %s does not exist", key);
       } else if (strcmp(value, expected_value)) {
-        fail("Property %s is %s; should be %s", key, value, expected_value);
+        fail("Property %s is \"%s\"; should be \"%s\"", key, value, expected_value);
       }
     }
   }
@@ -173,7 +163,7 @@ static void check_regions(openslide_t *osr) {
     int64_t w = g_ascii_strtoll(args[3], NULL, 10);
     int64_t h = g_ascii_strtoll(args[4], NULL, 10);
 
-    g_autofree uint32_t *buf = g_malloc(w * h * 4);
+    g_autofree uint32_t *buf = g_new(uint32_t, w * h);
     openslide_read_region(osr, buf, x, y, level, w, h);
     check_error(osr);
   }
@@ -181,9 +171,9 @@ static void check_regions(openslide_t *osr) {
 
 static GOptionEntry options[] = {
   {"vendor", 'n', 0, G_OPTION_ARG_STRING, &vendor_check,
-   "Check for specified vendor (\"none\" for NULL)", "\"VENDOR\""},
+   "Check for specified vendor (\"NULL\" for NULL)", "\"VENDOR\""},
   {"property", 'p', 0, G_OPTION_ARG_STRING_ARRAY, &prop_checks,
-   "Check for specified property value", "\"NAME=VALUE\""},
+   "Check property value (\"ABSENT\" for absent)", "\"NAME=VALUE\""},
   {"region", 'r', 0, G_OPTION_ARG_STRING_ARRAY, &region_checks,
    "Read specified region", "\"X Y LEVEL W H\""},
   {"time", 't', 0, G_OPTION_ARG_NONE, &time_check,
@@ -210,13 +200,7 @@ int main(int argc, char **argv) {
   const char *filename = argv[1];
 
   // Record preexisting file descriptors
-  g_autoptr(GHashTable) fds = g_hash_table_new(g_direct_hash, g_direct_equal);
-  for (int i = 0; i < MAX_FDS; i++) {
-    struct stat st;
-    if (!fstat(i, &st)) {
-      g_hash_table_insert(fds, GINT_TO_POINTER(i), GINT_TO_POINTER(1));
-    }
-  }
+  g_autoptr(GHashTable) fds = libtest_get_open_fds();
 
   g_log_set_handler("OpenSlide", (GLogLevelFlags)
       (G_LOG_LEVEL_ERROR | G_LOG_LEVEL_CRITICAL | G_LOG_LEVEL_WARNING),
@@ -228,7 +212,7 @@ int main(int argc, char **argv) {
   // Check vendor if requested
   if (vendor_check) {
     const char *expected_vendor = vendor_check;
-    if (!strcmp(expected_vendor, "none")) {
+    if (!strcmp(expected_vendor, "NULL")) {
       expected_vendor = NULL;
     }
     if ((expected_vendor == NULL) != (vendor == NULL) ||
@@ -261,20 +245,8 @@ int main(int argc, char **argv) {
   }
 
   // Check for file descriptor leaks
-  for (int i = 0; i < MAX_FDS; i++) {
-    if (!g_hash_table_lookup(fds, GINT_TO_POINTER(i))) {
-      g_autofree char *path = common_get_fd_path(i);
-      if (path != NULL) {
-        if (in_valgrind() && g_str_has_prefix(path, "pipe:")) {
-          // valgrind likes to open pipes
-          continue;
-        }
-        // leaked
-        fprintf(stderr, "Leaked file descriptor to %s\n", path);
-        have_error = true;
-      }
-    }
-  }
+  have_error |=
+    !libtest_check_open_fds(fds, "Leaked file descriptor after close");
 
   // Do timing run.  The earlier openslide_open() doesn't count because
   // it reads the slide data into the page cache.

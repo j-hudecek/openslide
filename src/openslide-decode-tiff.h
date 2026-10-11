@@ -19,11 +19,9 @@
  *
  */
 
-#ifndef OPENSLIDE_OPENSLIDE_DECODE_TIFF_H_
-#define OPENSLIDE_OPENSLIDE_DECODE_TIFF_H_
+#pragma once
 
 #include "openslide-private.h"
-#include "openslide-hash.h"
 
 #include <stdint.h>
 #include <glib.h>
@@ -49,7 +47,6 @@ struct _openslide_tiff_level {
 struct _openslide_tiffcache;
 
 struct _openslide_cached_tiff {
-  struct _openslide_tiffcache *tc;
   TIFF *tiff;
 };
 
@@ -59,11 +56,10 @@ bool _openslide_tiff_level_init(TIFF *tiff,
                                 struct _openslide_tiff_level *tiffl,
                                 GError **err);
 
-bool _openslide_tiff_check_missing_tile(struct _openslide_tiff_level *tiffl,
-                                        TIFF *tiff,
-                                        int64_t tile_col, int64_t tile_row,
-                                        bool *is_missing,
-                                        GError **err);
+bool _openslide_tiff_missing_tiles_to_simple_grid(struct _openslide_tiff_level *tiffl,
+                                                  TIFF *tiff,
+                                                  struct _openslide_grid *grid,
+                                                  GError **err);
 
 bool _openslide_tiff_read_tile(struct _openslide_tiff_level *tiffl,
                                TIFF *tiff,
@@ -86,6 +82,7 @@ bool _openslide_tiff_add_associated_image(openslide_t *osr,
                                           const char *name,
                                           struct _openslide_tiffcache *tc,
                                           tdir_t dir,
+                                          tdir_t *icc_dir,
                                           GError **err);
 
 bool _openslide_tiff_set_dir(TIFF *tiff,
@@ -97,18 +94,19 @@ bool _openslide_tiff_set_offset(TIFF* tiff,
     GError** err);
 
 
-// get the profile size from a level for osr->icc_profile_size
-bool _openslide_tiff_get_icc_profile_size(struct _openslide_tiff_level *tiffl,
-                                          TIFF *tiff,
+// get the profile size from a TIFF directory for osr->icc_profile_size
+bool _openslide_tiff_get_icc_profile_size(TIFF *tiff, tdir_t dir,
                                           int64_t *icc_profile_size,
                                           GError **err);
 
-// read the profile from a level
-bool _openslide_tiff_read_icc_profile(openslide_t *osr,
-                                      struct _openslide_tiff_level *tiffl,
-                                      TIFF *tiff,
-                                      void *dest,
+// read the profile from a TIFF directory
+// expected_size is from osr->icc_profile_size
+bool _openslide_tiff_read_icc_profile(TIFF *tiff, tdir_t dir,
+                                      void *dest, int64_t expected_size,
                                       GError **err);
+
+// set error, appending libtiff error message if one is available
+void _openslide_tiff_error(GError **err, TIFF *tiff, const char *fmt, ...);
 
 
 /* TIFF handles are not thread-safe, so we have a handle cache for
@@ -130,5 +128,3 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(_openslide_tiffcache,
 typedef struct _openslide_cached_tiff _openslide_cached_tiff;
 G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC(_openslide_cached_tiff,
                                  _openslide_cached_tiff_put)
-
-#endif

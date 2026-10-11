@@ -81,6 +81,7 @@ static void destroy_level(struct level *l) {
   _openslide_grid_destroy(l->grid);
   g_free(l);
 }
+OPENSLIDE_DEFINE_G_DESTROY_NOTIFY_WRAPPER(destroy_level)
 
 static void destroy(openslide_t *osr) {
   struct philips_tiff_ops_data *data = osr->data;
@@ -113,19 +114,7 @@ static bool read_tile(openslide_t *osr,
                                             level, tile_col, tile_row,
                                             &cache_entry);
   if (!tiledata) {
-    // slides with multiple ROIs are sparse
-    bool is_missing;
-    if (!_openslide_tiff_check_missing_tile(tiffl, tiff,
-                                            tile_col, tile_row,
-                                            &is_missing, err)) {
-      return false;
-    }
-    if (is_missing) {
-      // nothing to draw
-      return true;
-    }
-
-    g_autofree uint32_t *buf = g_malloc(tw * th * 4);
+    g_autofree uint32_t *buf = g_new(uint32_t, tw * th);
     if (!_openslide_tiff_read_tile(tiffl, tiff,
                                    buf, tile_col, tile_row,
                                    err)) {
@@ -246,8 +235,7 @@ static xmlDoc *parse_xml(TIFF *tiff, GError **err) {
 
   const char *image_desc;
   if (!TIFFGetField(tiff, TIFFTAG_IMAGEDESCRIPTION, &image_desc)) {
-    g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                "Couldn't read ImageDescription");
+    _openslide_tiff_error(err, tiff, "Couldn't read ImageDescription");
     return NULL;
   }
   return _openslide_xml_parse(image_desc, err);
@@ -432,11 +420,11 @@ static uint32_t parse_objective_power(const char *derivation, GError **err) {
     }
     if (g_str_equal(kv[0], "levels") && kv[1]) {
       g_auto(GStrv) levels = g_strsplit(kv[1], ",", 0);
-      char *end;
-      uint64_t first_level = g_ascii_strtoull(levels[0], &end, 10);
+      uint64_t first_level;
       // the first entry might be the objective power, or might be a number
       // above 10000.  accept only reasonable-looking values.
-      if (first_level && !*end && first_level <= 200) {
+      if (_openslide_parse_uint64(levels[0], &first_level, 10) &&
+          first_level && first_level <= 200) {
         return first_level;
       }
       break;
@@ -472,6 +460,14 @@ static void add_openslide_properties(openslide_t *osr) {
                           g_strdup(OPENSLIDE_PROPERTY_NAME_OBJECTIVE_POWER),
                           g_strdup_printf("%u", objective_power));
     }
+  }
+
+  const char *barcode = g_hash_table_lookup(osr->properties,
+                                            "philips.PIM_DP_UFS_BARCODE");
+  if (barcode) {
+    g_hash_table_insert(osr->properties,
+                        g_strdup(OPENSLIDE_PROPERTY_NAME_BARCODE),
+                        _openslide_decode_base64_str(barcode));
   }
 }
 
@@ -567,7 +563,7 @@ static bool philips_tiff_open(openslide_t *osr,
 
   // create levels
   g_autoptr(GPtrArray) level_array =
-    g_ptr_array_new_with_free_func((GDestroyNotify) destroy_level);
+    g_ptr_array_new_with_free_func(OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(destroy_level));
   struct level *prev_l = NULL;
   do {
     // get directory
@@ -596,8 +592,7 @@ static bool philips_tiff_open(openslide_t *osr,
       // verify that we can read this compression
       uint16_t compression;
       if (!TIFFGetField(ct.tiff, TIFFTAG_COMPRESSION, &compression)) {
-        g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                    "Can't read compression scheme");
+        _openslide_tiff_error(err, ct.tiff, "Can't read compression scheme");
         return false;
       };
       if (!TIFFIsCODECConfigured(compression)) {
@@ -622,6 +617,11 @@ static bool philips_tiff_open(openslide_t *osr,
                                               tiffl->tile_w,
                                               tiffl->tile_h,
                                               read_tile);
+      // slides with multiple ROIs are sparse
+      if (!_openslide_tiff_missing_tiles_to_simple_grid(tiffl, ct.tiff, l->grid,
+                                                        err)) {
+        return false;
+      }
 
       // verify that levels are sorted by size
       if (prev_l &&
@@ -637,7 +637,8 @@ static bool philips_tiff_open(openslide_t *osr,
                g_str_has_prefix(image_desc, LABEL_DESCRIPTION)) {
       // label
       //g_debug("Adding label image from directory %d", dir);
-      if (!_openslide_tiff_add_associated_image(osr, "label", tc, dir, err)) {
+      if (!_openslide_tiff_add_associated_image(osr, "label", tc, dir, NULL,
+                                                err)) {
         return false;
       }
 
@@ -645,7 +646,8 @@ static bool philips_tiff_open(openslide_t *osr,
                g_str_has_prefix(image_desc, MACRO_DESCRIPTION)) {
       // macro image
       //g_debug("Adding macro image from directory %d", dir);
-      if (!_openslide_tiff_add_associated_image(osr, "macro", tc, dir, err)) {
+      if (!_openslide_tiff_add_associated_image(osr, "macro", tc, dir, NULL,
+                                                err)) {
         return false;
       }
     }

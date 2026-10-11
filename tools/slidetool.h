@@ -19,8 +19,7 @@
  *
  */
 
-#ifndef OPENSLIDE_SLIDETOOL_H_
-#define OPENSLIDE_SLIDETOOL_H_
+#pragma once
 
 #include <stdio.h>
 #include <glib.h>
@@ -51,6 +50,7 @@ extern const struct command prop_cmd;
 extern const struct command region_cmd;
 extern const struct command region_icc_cmd;
 extern const struct command slide_cmd;
+extern const struct command test_cmd;
 
 extern const struct command quickhash1sum_cmd;
 extern const struct command show_properties_cmd;
@@ -63,5 +63,3 @@ typedef struct output output;
 struct output open_output(const char *filename);
 void _close_output(struct output *out);
 G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC(output, _close_output);
-
-#endif

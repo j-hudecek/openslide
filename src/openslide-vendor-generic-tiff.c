@@ -50,6 +50,7 @@ static void destroy_level(struct level *l) {
   _openslide_grid_destroy(l->grid);
   g_free(l);
 }
+OPENSLIDE_DEFINE_G_DESTROY_NOTIFY_WRAPPER(destroy_level)
 
 typedef struct level level;
 G_DEFINE_AUTOPTR_CLEANUP_FUNC(level, destroy_level)
@@ -85,19 +86,7 @@ static bool read_tile(openslide_t *osr,
                                             level, tile_col, tile_row,
                                             &cache_entry);
   if (!tiledata) {
-    // TIFF doesn't allow missing tiles, but WSI-derived TIFFs might have them
-    bool is_missing;
-    if (!_openslide_tiff_check_missing_tile(tiffl, tiff,
-                                            tile_col, tile_row,
-                                            &is_missing, err)) {
-      return false;
-    }
-    if (is_missing) {
-      // nothing to draw
-      return true;
-    }
-
-    g_autofree uint32_t *buf = g_malloc(tw * th * 4);
+    g_autofree uint32_t *buf = g_new(uint32_t, tw * th);
     if (!_openslide_tiff_read_tile(tiffl, tiff,
                                    buf, tile_col, tile_row,
                                    err)) {
@@ -158,7 +147,8 @@ static bool read_icc_profile(openslide_t *osr, void *dest, GError **err) {
     return false;
   }
 
-  return _openslide_tiff_read_icc_profile(osr, &l->tiffl, ct.tiff, dest, err);
+  return _openslide_tiff_read_icc_profile(ct.tiff, l->tiffl.dir,
+                                          dest, osr->icc_profile_size, err);
 }
 
 static const struct _openslide_ops generic_tiff_ops = {
@@ -233,15 +223,17 @@ static bool generic_tiff_open(openslide_t *osr,
 
   // accumulate tiled levels
   g_autoptr(GPtrArray) level_array =
-    g_ptr_array_new_with_free_func((GDestroyNotify) destroy_level);
+    g_ptr_array_new_with_free_func(OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(destroy_level));
   do {
+    tdir_t dir = TIFFCurrentDirectory(ct.tiff);
+
     // confirm that this directory is tiled
     if (!TIFFIsTiled(ct.tiff)) {
       continue;
     }
 
     // confirm it is either the first image, or reduced-resolution
-    if (TIFFCurrentDirectory(ct.tiff) != 0) {
+    if (dir != 0) {
       uint32_t subfiletype;
       if (!TIFFGetField(ct.tiff, TIFFTAG_SUBFILETYPE, &subfiletype)) {
         continue;
@@ -255,8 +247,7 @@ static bool generic_tiff_open(openslide_t *osr,
     // verify that we can read this compression (hard fail if not)
     uint16_t compression;
     if (!TIFFGetField(ct.tiff, TIFFTAG_COMPRESSION, &compression)) {
-      g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
-                  "Can't read compression scheme");
+      _openslide_tiff_error(err, ct.tiff, "Can't read compression scheme");
       return false;
     };
     if (!TIFFIsCODECConfigured(compression)) {
@@ -268,8 +259,7 @@ static bool generic_tiff_open(openslide_t *osr,
     // create level
     g_autoptr(level) l = g_new0(struct level, 1);
     struct _openslide_tiff_level *tiffl = &l->tiffl;
-    if (!_openslide_tiff_level_init(ct.tiff,
-                                    TIFFCurrentDirectory(ct.tiff),
+    if (!_openslide_tiff_level_init(ct.tiff, dir,
                                     (struct _openslide_level *) l,
                                     tiffl,
                                     err)) {
@@ -281,6 +271,11 @@ static bool generic_tiff_open(openslide_t *osr,
                                             tiffl->tile_w,
                                             tiffl->tile_h,
                                             read_tile);
+    // TIFF doesn't allow missing tiles, but WSI-derived TIFFs might have them
+    if (!_openslide_tiff_missing_tiles_to_simple_grid(tiffl, ct.tiff, l->grid,
+                                                      err)) {
+      return false;
+    }
 
     // add to array
     g_ptr_array_add(level_array, g_steal_pointer(&l));
@@ -290,6 +285,7 @@ static bool generic_tiff_open(openslide_t *osr,
   g_ptr_array_sort(level_array, width_compare);
 
   // set hash and properties
+  struct level *bottom_level = level_array->pdata[0];
   struct level *top_level = level_array->pdata[level_array->len - 1];
   int32_t property_dir = 0;
   if (!_openslide_tifflike_init_properties_and_hash(osr, tl, quickhash1,
@@ -299,11 +295,12 @@ static bool generic_tiff_open(openslide_t *osr,
     return false;
   }
   _openslide_tifflike_set_resolution_props(osr, tl, 0);
+  _openslide_set_bounds_props_from_grid(osr, &bottom_level->base,
+                                        bottom_level->grid);
 
   // get icc profile size, if present
   struct level *base_level = level_array->pdata[0];
-  if (!_openslide_tiff_get_icc_profile_size(&base_level->tiffl,
-                                            ct.tiff,
+  if (!_openslide_tiff_get_icc_profile_size(ct.tiff, base_level->tiffl.dir,
                                             &osr->icc_profile_size,
                                             err)) {
     return false;

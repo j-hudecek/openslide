@@ -32,13 +32,11 @@
 #include "openslide-private.h"
 #include "openslide-decode-jpeg.h"
 #include "openslide-decode-sqlite.h"
-#include "openslide-hash.h"
 
 #include <glib.h>
 #include <glib-object.h>
 #include <gio/gio.h>
 #include <string.h>
-#include <errno.h>
 
 static const char MAGIC_BYTES[] = "SVGigaPixelImage";
 
@@ -164,6 +162,7 @@ static void destroy_level(struct level *l) {
   _openslide_grid_destroy(l->grid);
   g_free(l);
 }
+OPENSLIDE_DEFINE_G_DESTROY_NOTIFY_WRAPPER(destroy_level)
 
 static void destroy(openslide_t *osr) {
   struct sakura_ops_data *data = osr->data;
@@ -189,10 +188,8 @@ static char *make_tileid(int64_t x, int64_t y,
 static bool _parse_tileid_column(const char *tileid, const char *col,
                                  int64_t *result,
                                  GError **err) {
-  char *endptr;
-  errno = 0;
-  int64_t val = g_ascii_strtoll(col, &endptr, 10);
-  if (*col == 0 || *endptr != 0 || errno == ERANGE || val < 0) {
+  int64_t val;
+  if (!_openslide_parse_int64(col, &val) || val < 0) {
     g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                 "Bad field value in tile ID %s", tileid);
     return false;
@@ -342,7 +339,7 @@ static bool read_tile(openslide_t *osr,
                                             level, tile_col, tile_row,
                                             &cache_entry);
   if (!tiledata) {
-    g_autofree uint32_t *buf = g_malloc(tile_size * tile_size * 4);
+    g_autofree uint32_t *buf = g_new(uint32_t, tile_size * tile_size);
 
     // read tile
     if (!read_image(buf, tile_col, tile_row, l->base.downsample,
@@ -793,7 +790,7 @@ static bool sakura_open(openslide_t *osr, const char *filename,
   // create levels; gather tileids for top level
   g_autoptr(GHashTable) level_hash =
     g_hash_table_new_full(g_int64_hash, g_int64_equal, g_free,
-                          (GDestroyNotify) destroy_level);
+                          OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(destroy_level));
   g_autoptr(tileid_queue) quickhash_tileids = g_queue_new();
   int64_t quickhash_downsample = 0;
   g_autofree char *sql =

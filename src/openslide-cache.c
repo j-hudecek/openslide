@@ -24,8 +24,6 @@
 
 #include <glib.h>
 
-#define DEFAULT_CACHE_SIZE (1024*1024*32)
-
 // hash table key
 struct _openslide_cache_key {
   uint64_t binding_id;  // distinguishes values from different slide handles
@@ -120,9 +118,7 @@ static gboolean key_equal_func(gconstpointer a,
     (c_a->y == c_b->y);
 }
 
-static void hash_destroy_value(gpointer data) {
-  struct _openslide_cache_value *value = data;
-
+static void hash_destroy_value(struct _openslide_cache_value *value) {
   // remove the item from the list
   g_queue_delete_link(value->cache->list, value->link);
 
@@ -136,6 +132,7 @@ static void hash_destroy_value(gpointer data) {
   // free the value
   g_free(value);
 }
+OPENSLIDE_DEFINE_G_DESTROY_NOTIFY_WRAPPER(hash_destroy_value)
 
 openslide_cache_t *_openslide_cache_create(uint64_t capacity_in_bytes) {
   openslide_cache_t *cache = g_new0(openslide_cache_t, 1);
@@ -150,7 +147,7 @@ openslide_cache_t *_openslide_cache_create(uint64_t capacity_in_bytes) {
   cache->hashtable = g_hash_table_new_full(hash_func,
 					   key_equal_func,
 					   g_free,
-					   hash_destroy_value);
+					   OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(hash_destroy_value));
 
   // init refcount
   cache->refcount = 1;
@@ -198,11 +195,11 @@ void _openslide_cache_release(openslide_cache_t *cache) {
   cache_unref(cache);
 }
 
-struct _openslide_cache_binding *_openslide_cache_binding_create(void) {
+struct _openslide_cache_binding *_openslide_cache_binding_create(uint64_t capacity_in_bytes) {
   struct _openslide_cache_binding *cb =
     g_new0(struct _openslide_cache_binding, 1);
   g_mutex_init(&cb->mutex);
-  cb->cache = _openslide_cache_create(DEFAULT_CACHE_SIZE);
+  cb->cache = _openslide_cache_create(capacity_in_bytes);
   cb->id = cb->cache->next_binding_id++;
   return cb;
 }

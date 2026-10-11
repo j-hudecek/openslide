@@ -40,8 +40,10 @@ struct png_ctx {
 };
 
 static void warning_callback(png_struct *png G_GNUC_UNUSED,
-                             const char *message G_GNUC_UNUSED) {
-  //g_debug("%s", message);
+                             const char *message) {
+  if (_openslide_debug(OPENSLIDE_DEBUG_DECODING)) {
+    g_warning("PNG warning: %s", message);
+  }
 }
 
 static void error_callback(png_struct *png, const char *message) {
@@ -70,7 +72,7 @@ static struct png_ctx *png_ctx_new(uint32_t *dest,
   g_auto(png_ctx) ctx = g_new0(struct png_ctx, 1);
 
   // allocate row pointers
-  ctx->rows = g_malloc(h * sizeof(*ctx->rows));
+  ctx->rows = g_new(png_byte *, h);
   for (int64_t y = 0; y < h; y++) {
     ctx->rows[y] = (png_byte *) &dest[y * w];
   }
@@ -185,22 +187,18 @@ static bool png_read(png_rw_ptr read_callback, void *callback_data,
 
 static void file_read_callback(png_struct *png, png_byte *buf, png_size_t len) {
   struct _openslide_file *f = png_get_io_ptr(png);
-  if (_openslide_fread(f, buf, len) != len) {
+  if (!_openslide_fread_exact(f, buf, len, NULL)) {
+    // passing a dynamic string would leak it
     png_error(png, "Read failed");
   }
 }
 
-bool _openslide_png_read(const char *filename,
-                         int64_t offset,
-                         uint32_t *dest,
-                         int64_t w, int64_t h,
-                         GError **err) {
-  g_autoptr(_openslide_file) f = _openslide_fopen(filename, err);
-  if (!f) {
-    return false;
-  }
+bool _openslide_png_read_file(struct _openslide_file *f,
+                              int64_t offset,
+                              uint32_t *dest,
+                              int64_t w, int64_t h,
+                              GError **err) {
   if (!_openslide_fseek(f, offset, SEEK_SET, err)) {
-    g_prefix_error(err, "Couldn't fseek %s: ", filename);
     return false;
   }
   return png_read(file_read_callback, f, dest, w, h, err);

@@ -32,8 +32,8 @@
 #include <config.h>
 
 #include "openslide-private.h"
+#include "openslide-decode-bmp.h"
 #include "openslide-decode-dicom.h"
-#include "openslide-decode-gdkpixbuf.h"
 #include "openslide-decode-jp2k.h"
 #include "openslide-decode-jpeg.h"
 #include "openslide-decode-png.h"
@@ -69,8 +69,8 @@ static const struct synthetic_item **synthetic_items;
 
 static bool decode_bmp(const void *data, uint32_t len,
                        uint32_t *dest, GError **err) {
-  return _openslide_gdkpixbuf_decode_buffer("bmp", data, len, dest,
-                                            IMAGE_PIXELS, IMAGE_PIXELS, err);
+  return _openslide_bmp_decode_buffer(data, len, dest,
+                                      IMAGE_PIXELS, IMAGE_PIXELS, err);
 }
 
 static bool decode_dicom(const void *data, uint32_t len,
@@ -156,13 +156,13 @@ static bool decode_png(const void *data, uint32_t len,
 
 struct mem_tiff {
   const uint8_t *data;
-  ssize_t offset;
-  ssize_t size;
+  int64_t offset;
+  int64_t size;
 };
 
 static tsize_t mem_tiff_read(thandle_t th, tdata_t buf, tsize_t size) {
   struct mem_tiff *mem = th;
-  ssize_t count = MIN(mem->size - mem->offset, size);
+  int64_t count = MIN(mem->size - mem->offset, size);
   memcpy(buf, mem->data + mem->offset, count);
   mem->offset += count;
   return count;
@@ -177,20 +177,7 @@ static tsize_t mem_tiff_write(thandle_t th G_GNUC_UNUSED,
 
 static toff_t mem_tiff_seek(thandle_t th, toff_t offset, int whence) {
   struct mem_tiff *mem = th;
-
-  switch (whence) {
-  case SEEK_SET:
-    mem->offset = offset;
-    break;
-  case SEEK_CUR:
-    mem->offset += offset;
-    break;
-  case SEEK_END:
-    mem->offset = mem->size + offset;
-    break;
-  default:
-    g_assert_not_reached();
-  }
+  mem->offset = _openslide_compute_seek(mem->offset, mem->size, offset, whence);
   return mem->offset;
 }
 
@@ -204,7 +191,6 @@ static toff_t mem_tiff_size(thandle_t th) {
   return mem->size;
 }
 
-#undef TIFFClientOpen
 static bool decode_tiff(const void *data, uint32_t len,
                         uint32_t *dest, GError **err) {
   // there's no reason for OpenSlide as a whole to support reading entire
@@ -216,8 +202,9 @@ static bool decode_tiff(const void *data, uint32_t len,
   };
   // mode: m disables mmap to avoid sigbus and other mmap fragility
   g_autoptr(TIFF) tiff =
-    TIFFClientOpen("tiff", "rm", &mem, mem_tiff_read, mem_tiff_write,
-                   mem_tiff_seek, mem_tiff_close, mem_tiff_size, NULL, NULL);
+    TIFFClientOpen("tiff", "rm", &mem, mem_tiff_read,  // ci-allow
+                   mem_tiff_write, mem_tiff_seek, mem_tiff_close,
+                   mem_tiff_size, NULL, NULL);
   if (tiff == NULL) {
     g_set_error(err, OPENSLIDE_ERROR, OPENSLIDE_ERROR_FAILED,
                 "Couldn't open TIFF");
@@ -238,7 +225,6 @@ static bool decode_tiff(const void *data, uint32_t len,
 
   return _openslide_tiff_read_tile(&tiffl, tiff, dest, 0, 0, err);
 }
-#define TIFFClientOpen _OPENSLIDE_POISON(_openslide_tiffcache_get)
 
 static bool decode_xml(const void *data, uint32_t len,
                        uint32_t *dest, GError **err) {
@@ -249,6 +235,19 @@ static bool decode_xml(const void *data, uint32_t len,
     return false;
   }
   memset(dest, 0, IMAGE_BUFSIZE);
+  return true;
+}
+
+static bool decode_zstd(const void *data, uint32_t len,
+                        uint32_t *dest, GError **err) {
+  g_autofree uint32_t *buf =
+    _openslide_zstd_decompress_buffer(data, len, IMAGE_BUFSIZE, err);
+  if (!buf) {
+    return false;
+  }
+  for (int i = 0; i < IMAGE_PIXELS * IMAGE_PIXELS; i++) {
+    dest[i] = GUINT32_FROM_BE(buf[i]);
+  }
   return true;
 }
 
@@ -461,15 +460,14 @@ static const struct synthetic_item **synthetic_items = (const struct synthetic_i
     .is_valid = true,
     .is_image = true,
     .decode = decode_bmp,
-    .uncompressed_size = 582,
-    .compressed_size = 72,
+    .uncompressed_size = 822,
+    .compressed_size = 54,
     .compressed_data = (const uint8_t[]){
-       0x78, 0xda, 0x73, 0xf2, 0x75, 0x63, 0x62, 0x00, 0x03, 0x37, 0x20, 0xb6,
-       0x00, 0x62, 0x01, 0x28, 0x66, 0x04, 0x92, 0xcc, 0x20, 0x09, 0xa0, 0xbc,
-       0xb2, 0x1e, 0x04, 0xc3, 0xc1, 0x0f, 0x06, 0x86, 0x07, 0xec, 0x0c, 0x0c,
-       0xf2, 0x50, 0xae, 0x3c, 0x1a, 0xfc, 0x0f, 0x05, 0x81, 0x3d, 0x10, 0x38,
-       0x50, 0xf2, 0x0c, 0x04, 0xdc, 0x47, 0x2d, 0x79, 0x60, 0x78, 0xa0, 0xc0,
-       0x07, 0xec, 0xa8, 0x70, 0xb8, 0xcb, 0x03, 0x00, 0x5d, 0x29, 0xd1, 0x3c,
+       0x78, 0xda, 0x73, 0xf2, 0x35, 0x63, 0x66, 0x00, 0x03, 0x33, 0x20, 0xd6,
+       0x00, 0x62, 0x01, 0x28, 0x66, 0x64, 0x90, 0x80, 0x48, 0x40, 0xe5, 0x91,
+       0xc1, 0x7f, 0x5c, 0x08, 0x09, 0x74, 0x20, 0x81, 0xa1, 0xa2, 0x1e, 0x17,
+       0x18, 0x6c, 0xea, 0x71, 0xea, 0xc0, 0x69, 0xd0, 0xa8, 0x7a, 0x6a, 0xaa,
+       0x07, 0x00, 0x9c, 0x25, 0x0a, 0x02,
     }
   },
   &(const struct synthetic_item){
@@ -968,6 +966,23 @@ static const struct synthetic_item **synthetic_items = (const struct synthetic_i
        0x63, 0x09, 0x00, 0xa9, 0x8a, 0xf0, 0x00, 0x15, 0x76, 0x05, 0x61, 0xbe,
        0x9a, 0xd1, 0x07, 0xc9, 0x35, 0x72, 0xae, 0x84, 0x1f, 0x8c, 0xba, 0x22,
        0xce,
+    }
+  },
+  &(const struct synthetic_item){
+    .name = "zstd",
+    .description = "Zstandard raw",
+    .is_valid = true,
+    .is_image = true,
+    .decode = decode_zstd,
+    .uncompressed_size = 50,
+    .compressed_size = 61,
+    .compressed_data = (const uint8_t[]){
+       0x78, 0xda, 0x01, 0x32, 0x00, 0xcd, 0xff, 0x28, 0xb5, 0x2f, 0xfd, 0x64,
+       0x00, 0x03, 0x25, 0x01, 0x00, 0x40, 0xff, 0xff, 0x00, 0x00, 0xff, 0x88,
+       0x88, 0x88, 0x0a, 0xa0, 0x50, 0x2b, 0xf4, 0x10, 0x80, 0x1b, 0x1f, 0x3d,
+       0x28, 0xcc, 0xd1, 0xec, 0x1d, 0xa2, 0x78, 0x39, 0xbb, 0xc4, 0xfb, 0x0e,
+       0x54, 0x69, 0xec, 0xee, 0x24, 0x06, 0x73, 0xed, 0x77, 0xfb, 0x67, 0x15,
+       0xcd,
     }
   },
   &(const struct synthetic_item){0}

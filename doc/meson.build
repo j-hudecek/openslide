@@ -1,9 +1,17 @@
+doxygen = find_program(
+  'doxygen',
+  required : get_option('doc'),
+)
+if not doxygen.found()
+  subdir_done()
+endif
+
 doxyfile = configure_file(
   input : 'Doxyfile.in',
   output : 'Doxyfile',
   configuration : {
-    'abs_builddir': meson.current_build_dir(),
-    'abs_top_srcdir':  meson.current_source_dir() / '..',
+    'abs_builddir' : meson.current_build_dir(),
+    'abs_top_srcdir' : meson.current_source_dir() / '..',
   },
 )
 

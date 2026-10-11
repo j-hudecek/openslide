@@ -47,6 +47,20 @@ static const uint32_t BUFSIZE = 16 << 20;
     common_fail(#i " must be positive"); \
   }
 
+static void warning_callback(png_structp png_ptr G_GNUC_UNUSED,
+                             const char *message) {
+  // libpng recognizes specific sRGB ICC profiles and automatically adds
+  // an sRGB chunk.  Sometimes it detects profiles which are sRGB but don't
+  // exactly match what it's looking for, in which case it warns and doesn't
+  // add the sRGB chunk.  We're just copying a profile from the original
+  // slide, so this warning isn't actionable.  Suppress it.
+  if (g_str_equal(message,
+                  "Not recognizing known sRGB profile that has been edited")) {
+    return;
+  }
+  fprintf(stderr, "libpng warning: %s\n", message);
+}
+
 static void setup_png(png_structp png_ptr, png_infop info_ptr,
                       FILE *f, int32_t w, int32_t h) {
   png_init_io(png_ptr, f);
@@ -88,7 +102,7 @@ static void write_lines_png(png_structp png_ptr, uint32_t *buf,
       uint8_t r = (((p >> 16) & 0xff) * 255 + a / 2) / a;
       uint8_t g = (((p >> 8) & 0xff) * 255 + a / 2) / a;
       uint8_t b = ((p & 0xff) * 255 + a / 2) / a;
-      buf[i] = GUINT32_TO_BE(r << 24 | g << 16 | b << 8 | a);
+      buf[i] = GUINT32_TO_BE((uint32_t) r << 24 | g << 16 | b << 8 | a);
     }
   }
 
@@ -101,7 +115,7 @@ static void write_png(openslide_t *osr, FILE *f,
                       int64_t x, int64_t y, int32_t level,
                       int32_t w, int32_t h) {
   png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING,
-                                                NULL, NULL, NULL);
+                                                NULL, NULL, warning_callback);
   if (!png_ptr) {
     common_fail("Could not initialize PNG");
   }
@@ -141,7 +155,7 @@ static void write_png(openslide_t *osr, FILE *f,
   png_write_info(png_ptr, info_ptr);
 
   const int32_t lines_at_a_time = MAX(BUFSIZE / (w * 4), 1);
-  g_autofree uint32_t *dest = g_malloc(lines_at_a_time * w * 4);
+  g_autofree uint32_t *dest = g_new(uint32_t, lines_at_a_time * w);
   int32_t lines_to_draw = h;
   double ds = openslide_get_level_downsample(osr, level);
   int32_t yy = y / ds;
@@ -200,7 +214,7 @@ static int do_write_png(int narg, char **args) {
   const char *slide = args[0];
   int64_t x = g_ascii_strtoll(args[1], NULL, 10);
   int64_t y = g_ascii_strtoll(args[2], NULL, 10);
-  int32_t level = strtol(args[3], NULL, 10);
+  int32_t level = g_ascii_strtoll(args[3], NULL, 10);
   int64_t width = g_ascii_strtoll(args[4], NULL, 10);
   int64_t height = g_ascii_strtoll(args[5], NULL, 10);
   const char *output = args[6];
@@ -214,7 +228,7 @@ static int do_region_read(int narg, char **args) {
   const char *slide = args[0];
   int64_t x = g_ascii_strtoll(args[1], NULL, 10);
   int64_t y = g_ascii_strtoll(args[2], NULL, 10);
-  int32_t level = strtol(args[3], NULL, 10);
+  int32_t level = g_ascii_strtoll(args[3], NULL, 10);
   int64_t width = g_ascii_strtoll(args[4], NULL, 10);
   int64_t height = g_ascii_strtoll(args[5], NULL, 10);
   const char *output = narg >= 7 ? args[6] : NULL;
@@ -258,7 +272,7 @@ static int do_assoc_list(int narg, char **args) {
 static void assoc_read(openslide_t *osr, const char *image, FILE *f,
                        int32_t w, int32_t h) {
   png_structp png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING,
-                                                NULL, NULL, NULL);
+                                                NULL, NULL, warning_callback);
   if (!png_ptr) {
     common_fail("Could not initialize PNG");
   }
@@ -287,7 +301,7 @@ static void assoc_read(openslide_t *osr, const char *image, FILE *f,
   // start writing
   png_write_info(png_ptr, info_ptr);
 
-  g_autofree uint32_t *dest = g_malloc(w * h * 4);
+  g_autofree uint32_t *dest = g_new(uint32_t, w * h);
   openslide_read_associated_image(osr, image, dest);
   common_fail_on_error(osr, "Reading associated image");
 

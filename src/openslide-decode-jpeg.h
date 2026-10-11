@@ -19,8 +19,9 @@
  *
  */
 
-#ifndef OPENSLIDE_OPENSLIDE_DECODE_JPEG_H_
-#define OPENSLIDE_OPENSLIDE_DECODE_JPEG_H_
+#pragma once
+
+#include "openslide-private.h"
 
 #include <jpeglib.h>
 #include <stdio.h>
@@ -28,25 +29,31 @@
 #include <glib.h>
 #include <setjmp.h>
 
-bool _openslide_jpeg_read_dimensions(const char *filename,
-                                     int64_t offset,
-                                     int32_t *w, int32_t *h,
-                                     GError **err);
+bool _openslide_jpeg_read_file_dimensions(struct _openslide_file *f,
+                                          int64_t offset,
+                                          int32_t *w, int32_t *h,
+                                          GError **err);
 
 bool _openslide_jpeg_decode_buffer_dimensions(const void *buf, uint32_t len,
                                               int32_t *w, int32_t *h,
                                               GError **err);
 
-bool _openslide_jpeg_read(const char *filename,
-                          int64_t offset,
-                          uint32_t *dest,
-                          int32_t w, int32_t h,
-                          GError **err);
+bool _openslide_jpeg_read_file(struct _openslide_file *f,
+                               int64_t offset,
+                               uint32_t *dest,
+                               int32_t w, int32_t h,
+                               GError **err);
 
 bool _openslide_jpeg_decode_buffer(const void *buf, uint32_t len,
                                    uint32_t *dest,
                                    int32_t w, int32_t h,
                                    GError **err);
+
+bool _openslide_jpeg_decode_buffer_colorspace(const void *buf, uint32_t len,
+                                              J_COLOR_SPACE space,
+                                              uint32_t *dest,
+                                              int32_t w, int32_t h,
+                                              GError **err);
 
 bool _openslide_jpeg_decode_buffer_gray(const void *buf, uint32_t len,
                                         uint8_t *dest,
@@ -65,12 +72,6 @@ bool _openslide_jpeg_add_associated_image(openslide_t *osr,
  */
 void _openslide_jpeg_stdio_src(j_decompress_ptr cinfo,
                                struct _openslide_file *infile);
-
-/*
- * Some libjpegs don't provide mem_src, so we have our own copy.
- */
-void _openslide_jpeg_mem_src (j_decompress_ptr cinfo,
-                              const void *inbuffer, size_t insize);
 
 
 /*
@@ -100,5 +101,3 @@ typedef struct _openslide_jpeg_decompress * volatile _openslide_jpeg_decompress;
 G_DEFINE_AUTO_CLEANUP_FREE_FUNC(_openslide_jpeg_decompress,
                                 _openslide_jpeg_decompress_destroy,
                                 NULL)
-
-#endif

@@ -129,7 +129,7 @@ static void unpack_argb(enum _openslide_jp2k_colorspace space,
   } else if (space == OPENSLIDE_JP2K_RGB &&
              c0_sub_x == 1 && c1_sub_x == 1 && c2_sub_x == 1 &&
              c0_sub_y == 1 && c1_sub_y == 1 && c2_sub_y == 1) {
-    // Aperio 33005
+    // actual RGB, plus MCT (Aperio 33005, DICOM YBR_ICT, DICOM YBR_RCT)
     for (int32_t y = 0; y < h; y++) {
       int32_t c0_row_base = y * comps[0].w;
       int32_t c1_row_base = y * comps[1].w;
@@ -166,9 +166,12 @@ static void unpack_argb(enum _openslide_jp2k_colorspace space,
   }
 }
 
-static void warning_callback(const char *msg G_GNUC_UNUSED,
-                             void *data G_GNUC_UNUSED) {
-  //g_debug("%s", msg);
+static void warning_callback(const char *msg, void *data G_GNUC_UNUSED) {
+  if (_openslide_debug(OPENSLIDE_DEBUG_DECODING)) {
+    g_autofree char *detail = g_strdup(msg);
+    g_strchomp(detail);
+    g_warning("OpenJPEG warning: %s", detail);
+  }
 }
 
 static void error_callback(const char *msg, void *data) {

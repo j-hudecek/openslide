@@ -35,19 +35,22 @@
 
 #include "openslide-error.h"
 
-const char _openslide_release_info[] = "OpenSlide " SUFFIXED_VERSION ", copyright (C) 2007-2024 Carnegie Mellon University and others.\nLicensed under the GNU Lesser General Public License, version 2.1.";
+const char _openslide_release_info[] = "OpenSlide " SUFFIXED_VERSION ", copyright (C) 2007-2026 Carnegie Mellon University and others.\nLicensed under the GNU Lesser General Public License, version 2.1.";
 
 static const char * const EMPTY_STRING_ARRAY[] = { NULL };
 
 static const struct _openslide_format *formats[] = {
   &_openslide_format_synthetic,
   &_openslide_format_mirax,
+  &_openslide_format_zeiss,
   &_openslide_format_dicom,
   &_openslide_format_hamamatsu_vms_vmu,
   &_openslide_format_hamamatsu_ndpi,
   &_openslide_format_sakura,
   &_openslide_format_trestle,
   &_openslide_format_aperio,
+  &_openslide_format_huron,
+  &_openslide_format_argos,
   &_openslide_format_leica,
   &_openslide_format_philips_tiff,
   &_openslide_format_ventana,
@@ -66,11 +69,10 @@ static void __attribute__((constructor)) _openslide_init(void) {
   openslide_was_dynamically_loaded = true;
 }
 
-static void destroy_associated_image(gpointer data) {
-  struct _openslide_associated_image *img = data;
-
+static void destroy_associated_image(struct _openslide_associated_image *img) {
   img->ops->destroy(img);
 }
+OPENSLIDE_DEFINE_G_DESTROY_NOTIFY_WRAPPER(destroy_associated_image)
 
 static bool level_in_range(openslide_t *osr, int32_t level) {
   if (level < 0) {
@@ -218,7 +220,7 @@ openslide_t *openslide_open(const char *filename) {
                                           g_free, g_free);
   osr->associated_images = g_hash_table_new_full(g_str_hash, g_str_equal,
                                                  g_free,
-                                                 destroy_associated_image);
+                                                 OPENSLIDE_G_DESTROY_NOTIFY_WRAPPER(destroy_associated_image));
 
   // refuse to run on unpatched pixman 0.38.x
   static GOnce pixman_once = G_ONCE_INIT;
@@ -338,11 +340,25 @@ openslide_t *openslide_open(const char *filename) {
     }
   }
 
+  // ensure NULL values don't leak into properties
+  GHashTableIter iter;
+  char *name;
+  char *value;
+  g_hash_table_iter_init(&iter, osr->properties);
+  while (g_hash_table_iter_next(&iter, (void *) &name, (void *) &value)) {
+    if (!value) {
+      g_warning("Property \"%s\" has NULL value", name);
+      g_hash_table_iter_remove(&iter);
+    }
+  }
+
   // fill in property names
   osr->property_names = strv_from_hashtable_keys(osr->properties);
 
-  // start cache
-  osr->cache = _openslide_cache_binding_create();
+  // start cache if the backend hasn't already done it
+  if (!osr->cache) {
+    osr->cache = _openslide_cache_binding_create(DEFAULT_CACHE_SIZE);
+  }
 
   return g_steal_pointer(&osr);
 }
