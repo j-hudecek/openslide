@@ -566,7 +566,7 @@ static bool sis_header_read(struct sis_header * self, FILE * stream) {
   check = fread((char*)&self->dummy2, 1, sizeof(self->dummy2), stream); // some kind of offset ?
   //g_assert((dummy2 == 0)); // not always
   check = fread((char*)&self->dummy3, 1, sizeof(self->dummy3), stream);
-  g_assert((self->dummy3 == 0)); // always zero ?
+//  g_assert((self->dummy3 == 0)); // always zero ? not always
   check = fread((char*)&self->dummy4, 1, sizeof(self->dummy4), stream);
   //g_assert((dummy4 == 0)); // not always
   check = fread((char*)&self->dummy5, 1, sizeof(self->dummy5), stream);
